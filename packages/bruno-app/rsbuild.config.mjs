@@ -51,7 +51,7 @@ export default defineConfig({
     }
   },
   html: {
-    title: 'Bruno'
+    title: 'Dopi'
   },
   tools: {
     rspack: {

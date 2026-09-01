@@ -64,6 +64,19 @@ const deriveCollectionFormat = (brunoConfig) => {
   return brunoConfig?.opencollection ? 'yml' : brunoConfig?.format || 'bru';
 };
 
+const MAX_COLLECTION_TIMELINE = 50;
+
+const appendCollectionTimeline = (collection, entry) => {
+  if (!collection) return;
+  if (!collection.timeline) {
+    collection.timeline = [];
+  }
+  collection.timeline.push(entry);
+  if (collection.timeline.length > MAX_COLLECTION_TIMELINE) {
+    collection.timeline = collection.timeline.slice(-MAX_COLLECTION_TIMELINE);
+  }
+};
+
 const mergeTreeItems = (existingItems, newItems) => {
   if (!Array.isArray(existingItems) || existingItems.length === 0) return newItems;
   const existingByUid = new Map();
@@ -638,11 +651,13 @@ export const collectionsSlice = createSlice({
         if (item) {
           item.requestState = 'received';
           item.response = action.payload.response;
-          item.cancelTokenUid = item.response.stream?.running ? item.cancelTokenUid : null;
+          item.cancelTokenUid = item.response?.stream?.running ? item.cancelTokenUid : null;
           item.requestStartTime = null;
 
-          if (!collection.timeline) {
-            collection.timeline = [];
+          let timelineResponse = action.payload.response;
+          if (timelineResponse && timelineResponse.dataBuffer) {
+            const { dataBuffer, ...rest } = timelineResponse;
+            timelineResponse = rest;
           }
 
           const timelineRequest = action.payload.requestSent || item.requestSent || item.request;
@@ -652,8 +667,8 @@ export const collectionsSlice = createSlice({
             ? timelineRequest.timestamp.getTime()
             : timelineRequest?.timestamp || Date.now();
 
-          // Append the new timeline entry with numeric timestamp
-          collection.timeline.push({
+          // Append the new timeline entry with numeric timestamp (capped at MAX_COLLECTION_TIMELINE)
+          appendCollectionTimeline(collection, {
             type: 'request',
             collectionUid: collection.uid,
             folderUid: null,
@@ -662,7 +677,7 @@ export const collectionsSlice = createSlice({
             timestamp: timestamp,
             data: {
               request: timelineRequest,
-              response: action.payload.response,
+              response: timelineResponse,
               timestamp: timestamp
             }
           });
@@ -688,11 +703,7 @@ export const collectionsSlice = createSlice({
         };
       }
 
-      if (!collection.timeline) {
-        collection.timeline = [];
-      }
-
-      collection.timeline.push({
+      appendCollectionTimeline(collection, {
         type: 'request',
         eventType: eventType, // Add the specific gRPC event type
         collectionUid: collection.uid,
@@ -807,13 +818,8 @@ export const collectionsSlice = createSlice({
       item.requestState = 'received';
       item.response = updatedResponse;
 
-      // Update the timeline
-      if (!collection?.timeline) {
-        collection.timeline = [];
-      }
-
-      // Append the new timeline entry with specific gRPC event type
-      collection.timeline.push({
+      // Append the new timeline entry with specific gRPC event type (capped at MAX_COLLECTION_TIMELINE)
+      appendCollectionTimeline(collection, {
         type: 'request',
         eventType: eventType, // Add the specific gRPC event type
         collectionUid: collection.uid,
@@ -3346,8 +3352,7 @@ export const collectionsSlice = createSlice({
 
           if (type === 'scripted-request') {
             const { phase, source, scope, timestamp, data } = action.payload;
-            if (!collection.timeline) collection.timeline = [];
-            collection.timeline.push({
+            appendCollectionTimeline(collection, {
               type: 'scripted-request',
               collectionUid,
               itemUid,
@@ -3705,12 +3710,8 @@ export const collectionsSlice = createSlice({
       // skip the shared timeline push so it doesn't leak into the standalone view.
       if (executionMode === 'runner') return;
 
-      if (!collection.timeline) {
-        collection.timeline = [];
-      }
-
       if (debugInfo) {
-        collection.timeline.push({
+        appendCollectionTimeline(collection, {
           type: 'oauth2',
           collectionUid,
           folderUid,
@@ -3867,11 +3868,7 @@ export const collectionsSlice = createSlice({
         };
       }
 
-      if (!collection.timeline) {
-        collection.timeline = [];
-      }
-
-      collection.timeline.push({
+      appendCollectionTimeline(collection, {
         type: 'request',
         eventType: eventType,
         collectionUid: collection.uid,

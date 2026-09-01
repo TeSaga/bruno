@@ -58,6 +58,16 @@ const Dropdown = ({ icon, children, onCreate, placement, transparent, visible, a
       animation={false}
       arrow={false}
       onCreate={onCreate}
+      onDestroy={(instance) => {
+        try {
+          if (instance?.popper?.parentElement && instance.popper.parentElement !== document.body) {
+            instance.popper.remove();
+          }
+        } catch (e) {
+          // ignore cleanup errors
+        }
+        if (props.onDestroy) props.onDestroy(instance);
+      }}
       {...tippyProps}
     >
       {icon}
@@ -65,4 +75,4 @@ const Dropdown = ({ icon, children, onCreate, placement, transparent, visible, a
   );
 };
 
-export default Dropdown;
+export default React.memo(Dropdown);

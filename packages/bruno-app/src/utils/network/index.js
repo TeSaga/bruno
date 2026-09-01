@@ -46,9 +46,10 @@ export const sendGrpcRequest = async (item, collection, environment, runtimeVari
 const sendHttpRequest = async (item, collection, environment, runtimeVariables) => {
   return new Promise((resolve, reject) => {
     const { ipcRenderer } = window;
+    const sanitizedCollection = collection?.timeline ? { ...collection, timeline: undefined } : collection;
 
     ipcRenderer
-      .invoke('send-http-request', item, collection, environment, runtimeVariables)
+      .invoke('send-http-request', item, sanitizedCollection, environment, runtimeVariables)
       .then(resolve)
       .catch(reject);
   });

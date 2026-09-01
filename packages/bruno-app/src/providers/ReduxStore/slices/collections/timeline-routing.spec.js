@@ -101,6 +101,24 @@ describe('runRequestEvent — single-request flow', () => {
 
     expect(state.collections[0].timeline || []).toHaveLength(0);
   });
+
+  test('caps timeline entries at MAX_COLLECTION_TIMELINE (50) and discards oldest', () => {
+    let state = makeInitialState();
+    state = reducer(state, initRunRequestEvent({
+      requestUid: REQUEST_UID, itemUid: ITEM_UID, collectionUid: COLLECTION_UID
+    }));
+    for (let i = 0; i < 60; i++) {
+      state = reducer(state, runRequestEvent(scriptedRequestEvent({
+        phase: 'pre-request',
+        timestamp: i
+      })));
+    }
+
+    const entries = state.collections[0].timeline;
+    expect(entries).toHaveLength(50);
+    expect(entries[0].timestamp).toBe(10);
+    expect(entries[49].timestamp).toBe(59);
+  });
 });
 
 describe('runFolderEvent — runner flow', () => {

@@ -76,13 +76,17 @@ import useSidebarSelectionClick from 'hooks/useSidebarSelectionClick';
 import useMultiSelectDragDisabled from 'hooks/useMultiSelectDragDisabled';
 import { clearSidebarSelection } from 'providers/ReduxStore/slices/collections/index';
 
+const sortItemsBySequence = (items = []) => {
+  return items.sort((a, b) => a.seq - b.seq);
+};
+
 const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, openBulkMenu }) => {
   const { dropdownContainerRef } = useSidebarAccordion();
-  const selectorInput = {
+  const selectorInput = useMemo(() => ({
     itemUid: item.uid,
     itemPathname: item.pathname,
     collectionUid
-  };
+  }), [item.uid, item.pathname, collectionUid]);
 
   const _isTabForItemActiveSelector = isTabForItemActiveSelector(selectorInput);
   const isTabForItemActive = useSelector(_isTabForItemActiveSelector, isEqual);
@@ -94,12 +98,12 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
   const tabUidForItem = useSelector(_tabUidForItemSelector, isEqual);
 
   const isSidebarDragging = useSelector((state) => state.app.isDragging);
-  const allCollections = useSelector((state) => state.collections.collections);
-  const collection = allCollections?.find((c) => c.uid === collectionUid);
+  const collection = useSelector((state) => state.collections.collections?.find((c) => c.uid === collectionUid));
+  const isSelected = useSelector((state) => state.collections.selectedSidebarUids.includes(item.uid));
+  const isMultiSelected = useSelector((state) => isSelected && state.collections.selectedSidebarUids.length > 1);
+  const selectedSidebarUids = useSelector((state) => isSelected ? state.collections.selectedSidebarUids : null);
+  const allCollections = useSelector((state) => isSelected ? state.collections.collections : null);
   const { hasCopiedItems } = useSelector((state) => state.app.clipboard);
-  const selectedSidebarUids = useSelector((state) => state.collections.selectedSidebarUids);
-  const isSelected = selectedSidebarUids.includes(item.uid);
-  const isMultiSelected = isSelected && selectedSidebarUids.length > 1;
   const handleSelectionClick = useSidebarSelectionClick({ uid: item.uid, searchText });
   const workspaces = useSelector((state) => state.workspaces.workspaces);
   const activeWorkspaceUid = useSelector((state) => state.workspaces.activeWorkspaceUid);
@@ -110,13 +114,13 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
   // When dragging a multi-selected row, carry all effectively-selected folders/requests
   // (excluding collections) so dropping one moves the entire selection together.
   const multiDragItems = useMemo(() => {
-    if (!isSelected || selectedSidebarUids.length < 2) return null;
+    if (!isSelected || !selectedSidebarUids || selectedSidebarUids.length < 2 || !allCollections) return null;
     const { effectiveSelection, hasCollection } = getSelectionInfo({ collections: allCollections, selectedUids: selectedSidebarUids });
     if (hasCollection) return null;
     return effectiveSelection.map((entry) => ({ ...entry.item, sourceCollectionUid: entry.collectionUid }));
   }, [isSelected, selectedSidebarUids, allCollections]);
 
-  const isDragDisabled = useMultiSelectDragDisabled({ isSelected, selectedSidebarUids, allCollections });
+  const isDragDisabled = useMultiSelectDragDisabled({ isSelected, selectedSidebarUids: selectedSidebarUids || [], allCollections: allCollections || [] });
 
   // We use a single ref for drag and drop.
   const ref = useRef(null);
@@ -142,6 +146,14 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
 
   // Check if request has examples (only for HTTP requests)
   const hasExamples = isItemARequest(item) && item.type === 'http-request' && item.examples && item.examples.length > 0;
+
+  const folderItems = useMemo(() => sortByNameThenSequence(filter(item.items, (i) => isItemAFolder(i) && !i.isTransient)), [item.items]);
+  const appItems = useMemo(() => sortItemsBySequence(filter(item.items, (i) => i.type === 'app' && !i.isTransient)), [item.items]);
+  const requestItems = useMemo(() => sortItemsBySequence(filter(item.items, (i) => isItemARequest(i) && !i.isTransient)), [item.items]);
+  const showEmptyFolderMessage
+    = isFolder && !hasSearchText && !folderItems?.length && !appItems?.length && !requestItems?.length;
+
+  const emptyFolderMenuItems = useMemo(() => createEmptyStateMenuItems({ dispatch, collection, itemUid: item.uid }), [dispatch, collection, item.uid]);
 
   // Sidebar shortcuts — only active when this sidebar item has keyboard focus
   useKeybinding('cloneItem', () => {
@@ -577,25 +589,8 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
     'is-sidebar-dragging': isSidebarDragging
   });
 
-  if (searchText && searchText.length) {
-    if (isItemARequest(item)) {
-      if (!doesRequestMatchSearchText(item, searchText)) {
-        return null;
-      }
-    } else {
-      if (!doesFolderHaveItemsMatchSearchText(item, searchText)) {
-        return null;
-      }
-    }
-  }
-
   const handleDoubleClick = (event) => {
     dispatch(makeTabPermanent({ uid: tabUidForItem || item.uid }));
-  };
-
-  // Sort items by their "seq" property.
-  const sortItemsBySequence = (items = []) => {
-    return items.sort((a, b) => a.seq - b.seq);
   };
 
   const handleShowInFolder = () => {
@@ -649,14 +644,6 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
     toast.success(`Example "${name}" created successfully`);
     setCreateExampleModalOpen(false);
   };
-
-  const folderItems = sortByNameThenSequence(filter(item.items, (i) => isItemAFolder(i) && !i.isTransient));
-  const appItems = sortItemsBySequence(filter(item.items, (i) => i.type === 'app' && !i.isTransient));
-  const requestItems = sortItemsBySequence(filter(item.items, (i) => isItemARequest(i) && !i.isTransient));
-  const showEmptyFolderMessage
-    = isFolder && !hasSearchText && !folderItems?.length && !appItems?.length && !requestItems?.length;
-
-  const emptyFolderMenuItems = createEmptyStateMenuItems({ dispatch, collection, itemUid: item.uid });
 
   const handleGenerateCode = () => {
     if (
@@ -728,6 +715,18 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
     dispatch(setFocusedSidebarPath(null));
   };
 
+  if (searchText && searchText.length) {
+    if (isItemARequest(item)) {
+      if (!doesRequestMatchSearchText(item, searchText)) {
+        return null;
+      }
+    } else {
+      if (!doesFolderHaveItemsMatchSearchText(item, searchText)) {
+        return null;
+      }
+    }
+  }
+
   return (
     <StyledWrapper className={className}>
       {renameItemModalOpen && (
@@ -760,13 +759,15 @@ const CollectionItem = ({ item, collectionUid, collectionPathname, searchText, o
       {itemInfoModalOpen && (
         <CollectionItemInfo item={item} onClose={() => setItemInfoModalOpen(false)} />
       )}
-      <CreateExampleModal
-        isOpen={createExampleModalOpen}
-        onClose={() => setCreateExampleModalOpen(false)}
-        onSave={handleCreateExample}
-        title="Create Response Example"
-        initialName={getInitialExampleName(item)}
-      />
+      {createExampleModalOpen && (
+        <CreateExampleModal
+          isOpen={createExampleModalOpen}
+          onClose={() => setCreateExampleModalOpen(false)}
+          onSave={handleCreateExample}
+          title="Create Response Example"
+          initialName={getInitialExampleName(item)}
+        />
+      )}
       <div
         className={itemRowClassName}
         ref={ref}

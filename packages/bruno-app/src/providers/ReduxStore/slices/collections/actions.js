@@ -598,6 +598,25 @@ const extractPromptVariablesForRequest = async (item, collection) => {
   });
 };
 
+const sanitizeCollectionForExecution = (collection) => {
+  if (!collection) return collection;
+  const { timeline, ...collectionRest } = collection;
+  const collectionCopy = cloneDeep(collectionRest);
+  const stripResponses = (items) => {
+    if (!Array.isArray(items)) return;
+    for (const it of items) {
+      if (it.response) {
+        delete it.response;
+      }
+      if (Array.isArray(it.items)) {
+        stripResponses(it.items);
+      }
+    }
+  };
+  stripResponses(collectionCopy.items);
+  return collectionCopy;
+};
+
 export const sendRequest = (item, collectionUid) => (dispatch, getState) => {
   const state = getState();
   const { globalEnvironments, activeGlobalEnvironmentUid } = state.globalEnvironments;
@@ -613,7 +632,7 @@ export const sendRequest = (item, collectionUid) => (dispatch, getState) => {
       await dispatch(cancelRequest(item.cancelTokenUid, item, collection));
     }
 
-    const collectionCopy = cloneDeep(collection);
+    const collectionCopy = sanitizeCollectionForExecution(collection);
 
     const itemCopy = cloneDeep(item);
 

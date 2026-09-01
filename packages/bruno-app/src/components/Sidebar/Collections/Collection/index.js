@@ -88,13 +88,16 @@ const Collection = ({ collection, searchText, openBulkMenu }) => {
   const collectionRef = useRef(null);
   // Only count persisted requests and folders; transients and file items
   // (bruno.json, .js scripts) don't affect empty state
-  const itemCount = collection.items?.filter((i) => !i.isTransient && (isItemARequest(i) || isItemAFolder(i) || i.type === 'app')).length || 0;
+  const itemCount = useMemo(() => {
+    return collection.items?.filter((i) => !i.isTransient && (isItemARequest(i) || isItemAFolder(i) || i.type === 'app')).length || 0;
+  }, [collection.items]);
 
   const isCollectionFocused = useSelector(isTabForItemActive({ itemUid: collection.uid }));
   const { hasCopiedItems } = useSelector((state) => state.app.clipboard);
-  const selectedSidebarUids = useSelector((state) => state.collections.selectedSidebarUids);
-  const isSelected = selectedSidebarUids.includes(collection.uid);
-  const isMultiSelected = isSelected && selectedSidebarUids.length > 1;
+  const isSelected = useSelector((state) => state.collections.selectedSidebarUids.includes(collection.uid));
+  const isMultiSelected = useSelector((state) => isSelected && state.collections.selectedSidebarUids.length > 1);
+  const selectedSidebarUids = useSelector((state) => isSelected ? state.collections.selectedSidebarUids : null);
+  const allCollections = useSelector((state) => isSelected ? state.collections.collections : null);
   const handleSelectionClick = useSidebarSelectionClick({ uid: collection.uid, searchText });
   const menuDropdownRef = useRef(null);
 
@@ -104,17 +107,16 @@ const Collection = ({ collection, searchText, openBulkMenu }) => {
   );
   const workspaces = useSelector((state) => state.workspaces.workspaces);
   const collectionSortOrder = useSelector((state) => state.collections.collectionSortOrder);
-  const allCollections = useSelector((state) => state.collections.collections);
   const isMoveToWorkspaceVisible = isPathExternalToBasePath(activeWorkspace?.pathname, collection.pathname);
 
-  const isDragDisabled = useMultiSelectDragDisabled({ isSelected, selectedSidebarUids, allCollections });
+  const isDragDisabled = useMultiSelectDragDisabled({ isSelected, selectedSidebarUids: selectedSidebarUids || [], allCollections: allCollections || [] });
 
   // When dragging a multi-selected collection, carry all other selected collections along
   // so dropping one reorders the entire selection together. Mixed selections (a collection
   // alongside a folder/request) are drag-disabled entirely, so this only ever needs to
   // handle collection-only selections.
   const multiDragItems = useMemo(() => {
-    if (!isSelected || !selectedSidebarUids || selectedSidebarUids.length < 2) return null;
+    if (!isSelected || !selectedSidebarUids || selectedSidebarUids.length < 2 || !allCollections) return null;
     const { effectiveSelection, hasFolder, hasRequest } = getSelectionInfo({ collections: allCollections, selectedUids: selectedSidebarUids });
     if (hasFolder || hasRequest) return null;
     const collectionEntries = effectiveSelection.filter((entry) => entry.type === 'collection');
@@ -709,4 +711,4 @@ const Collection = ({ collection, searchText, openBulkMenu }) => {
   );
 };
 
-export default Collection;
+export default React.memo(Collection);

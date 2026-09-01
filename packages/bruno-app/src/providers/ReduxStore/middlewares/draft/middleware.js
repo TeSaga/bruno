@@ -1,6 +1,6 @@
 import { handleMakeTabParmanent } from './utils';
 
-const actionsToIntercept = [
+const actionsToIntercept = new Set([
   // Request-level actions
   'collections/requestUrlChanged',
   'collections/updateAuth',
@@ -82,10 +82,10 @@ const actionsToIntercept = [
   'collections/updateCollectionClientCertificates',
   'collections/updateCollectionProtobuf',
   'collections/updateCollectionProxy'
-];
+]);
 
 export const draftDetectMiddleware = ({ dispatch, getState }) => (next) => (action) => {
-  if (actionsToIntercept.includes(action.type)) {
+  if (actionsToIntercept.has(action.type)) {
     const state = getState();
     handleMakeTabParmanent(state, action, dispatch);
   }

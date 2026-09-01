@@ -1,8 +1,8 @@
 require('dotenv').config({ path: process.env.DOTENV_PATH });
 
 const config = {
-  appId: 'com.usebruno.app',
-  productName: 'Bruno',
+  appId: 'com.dopi.app',
+  productName: 'Dopi',
   electronVersion: '37.6.1',
   directories: {
     buildResources: 'resources',
@@ -42,9 +42,9 @@ const config = {
     requirements: 'resources/app-requirements.txt',
     protocols: [
       {
-        name: 'Bruno',
+        name: 'Dopi',
         schemes: [
-          'bruno'
+          'dopi'
         ]
       }
     ]
@@ -68,13 +68,13 @@ const config = {
     ],
     protocols: [
       {
-        name: 'Bruno',
-        schemes: ['bruno']
+        name: 'Dopi',
+        schemes: ['dopi']
       }
     ],
     category: 'Development',
     desktop: {
-      MimeType: 'x-scheme-handler/bruno;'
+      MimeType: 'x-scheme-handler/dopi;'
     }
   },
   deb: {

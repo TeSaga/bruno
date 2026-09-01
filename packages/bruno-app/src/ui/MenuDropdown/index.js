@@ -83,10 +83,6 @@ const MenuDropdown = forwardRef(({
     selectedItemIdRef.current = selectedItemId;
   }, [selectedItemId]);
 
-  useEffect(() => {
-    autoFocusFirstOptionRef.current = autoFocusFirstOption;
-  }, [autoFocusFirstOption]);
-
   // Determine if component is controlled
   const isControlled = opened !== undefined;
 
@@ -516,4 +512,4 @@ const MenuDropdown = forwardRef(({
   );
 });
 
-export default MenuDropdown;
+export default React.memo(MenuDropdown);

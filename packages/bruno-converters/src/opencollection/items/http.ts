@@ -101,7 +101,6 @@ export const fromOpenCollectionHttpItem = (ocRequest: HttpRequest): BrunoItem =>
     settings: null,
     fileContent: null,
     root: null,
-    items: [],
     examples: [],
     filename: null,
     pathname: null

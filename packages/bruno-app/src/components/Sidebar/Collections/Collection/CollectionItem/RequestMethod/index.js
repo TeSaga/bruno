@@ -53,4 +53,4 @@ const RequestMethod = ({ item }) => {
   );
 };
 
-export default RequestMethod;
+export default React.memo(RequestMethod);

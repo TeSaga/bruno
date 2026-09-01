@@ -1,3 +1,4 @@
+import React from 'react';
 import RequestMethod from '../RequestMethod';
 import { IconLoader2, IconAlertTriangle, IconAlertCircle, IconAppWindow } from '@tabler/icons';
 import StyledWrapper from './StyledWrapper';
@@ -22,4 +23,4 @@ const CollectionItemIcon = ({ item }) => {
   return <RequestMethod item={item} />;
 };
 
-export default CollectionItemIcon;
+export default React.memo(CollectionItemIcon);

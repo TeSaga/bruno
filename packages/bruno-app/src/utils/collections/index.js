@@ -101,39 +101,99 @@ export const findItemByPathname = (items = [], pathname) => {
 };
 
 export const findItemInCollectionByPathname = (collection, pathname) => {
-  let flattenedItems = flattenItems(collection.items);
+  if (!collection || !collection.items || !pathname) {
+    return null;
+  }
 
-  return findItemByPathname(flattenedItems, pathname);
+  const findRecursive = (items) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item) continue;
+      if (item.pathname === pathname) {
+        return item;
+      }
+      if (item.items && item.items.length) {
+        const found = findRecursive(item.items);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  return findRecursive(collection.items);
 };
 
 export const findItemInCollectionByItemUid = (collection, itemUid) => {
-  let flattenedItems = flattenItems(collection.items);
-  return findItem(flattenedItems, itemUid);
+  return findItemInCollection(collection, itemUid);
 };
 
 export const findParentItemInCollectionByPathname = (collection, pathname) => {
-  let flattenedItems = flattenItems(collection.items);
+  if (!collection || !collection.items || !pathname) {
+    return null;
+  }
 
-  return find(flattenedItems, (item) => {
-    return item.items && find(item.items, (i) => i.pathname === pathname);
-  });
+  const findRecursive = (items) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || !item.items) continue;
+      for (let j = 0; j < item.items.length; j++) {
+        if (item.items[j]?.pathname === pathname) {
+          return item;
+        }
+      }
+      const found = findRecursive(item.items);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  return findRecursive(collection.items);
 };
 
 export const findItemInCollection = (collection, itemUid) => {
-  if (!collection || !collection.items) {
+  if (!collection || !collection.items || !itemUid) {
     return null;
   }
-  let flattenedItems = flattenItems(collection.items);
 
-  return findItem(flattenedItems, itemUid);
+  const findRecursive = (items) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item) continue;
+      if (item.uid === itemUid) {
+        return item;
+      }
+      if (item.items && item.items.length) {
+        const found = findRecursive(item.items);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  return findRecursive(collection.items);
 };
 
 export const findParentItemInCollection = (collection, itemUid) => {
-  let flattenedItems = flattenItems(collection.items);
+  if (!collection || !collection.items || !itemUid) {
+    return null;
+  }
 
-  return find(flattenedItems, (item) => {
-    return item.items && find(item.items, (i) => i.uid === itemUid);
-  });
+  const findRecursive = (items) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || !item.items) continue;
+      for (let j = 0; j < item.items.length; j++) {
+        if (item.items[j]?.uid === itemUid) {
+          return item;
+        }
+      }
+      const found = findRecursive(item.items);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  return findRecursive(collection.items);
 };
 
 export const recursivelyGetAllItemUids = (items = []) => {
@@ -154,27 +214,49 @@ export const areItemsLoading = (folder) => {
   if (!folder || folder.isLoading) {
     return true;
   }
+  if (!folder.items || !folder.items.length) {
+    return false;
+  }
 
-  let flattenedItems = flattenItems(folder.items);
-  return flattenedItems?.reduce((isLoading, i) => {
-    if (i?.loading) {
-      isLoading = true;
+  const checkLoading = (items) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item?.loading) {
+        return true;
+      }
+      if (item?.items?.length && checkLoading(item.items)) {
+        return true;
+      }
     }
-    return isLoading;
-  }, false);
+    return false;
+  };
+
+  return checkLoading(folder.items);
 };
 
 export const getItemsLoadStats = (folder) => {
   let loadingCount = 0;
-  let flattenedItems = flattenItems(folder.items);
-  flattenedItems?.forEach((i) => {
-    if (i?.loading) {
-      loadingCount += 1;
+  let total = 0;
+
+  const countRecursive = (items) => {
+    if (!items || !items.length) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      total += 1;
+      if (item?.loading) {
+        loadingCount += 1;
+      }
+      if (item?.items?.length) {
+        countRecursive(item.items);
+      }
     }
-  });
+  };
+
+  countRecursive(folder?.items);
+
   return {
     loading: loadingCount,
-    total: flattenedItems?.length
+    total: total
   };
 };
 
@@ -914,7 +996,7 @@ export const deleteItemInCollectionByPathname = (pathname, collection) => {
 };
 
 export const isItemARequest = (item) => {
-  return item.hasOwnProperty('request') && ['http-request', 'graphql-request', 'grpc-request', 'ws-request'].includes(item.type) && !item.items;
+  return item.hasOwnProperty('request') && ['http-request', 'graphql-request', 'grpc-request', 'ws-request'].includes(item.type) && (!item.items || !item.items.length);
 };
 
 export const isItemAFolder = (item) => {
