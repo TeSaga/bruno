@@ -32,6 +32,7 @@ const actionsToIntercept = new Set([
   'collections/updateRequestGraphqlVariables',
   'collections/updateRequestScript',
   'collections/updateResponseScript',
+  'collections/updateGrpcScript',
   'collections/updateRequestTests',
   'collections/updateRequestMethod',
   'collections/addAssertion',
