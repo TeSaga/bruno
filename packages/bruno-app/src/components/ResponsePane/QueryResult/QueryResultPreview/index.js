@@ -29,7 +29,8 @@ const QueryResultPreview = ({
   previewMode,
   disableRunEventListener,
   displayedTheme,
-  docKey
+  docKey,
+  foldAllOnMount
 }) => {
   const preferences = useSelector((state) => state.app.preferences);
   const dispatch = useDispatch();
@@ -70,6 +71,7 @@ const QueryResultPreview = ({
         initialScroll={responseScroll}
         onScroll={setResponseScroll}
         onLinkClick={handleResponseLinkClick}
+        foldAllOnMount={foldAllOnMount}
         readOnly
       />
     );

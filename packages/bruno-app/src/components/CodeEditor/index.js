@@ -478,6 +478,19 @@ class CodeEditor extends React.Component {
         ? this.lintOptions
         : false
     );
+
+    // If the caller wants children folded on load, run foldAll then reopen
+    // just the root so the immediate children remain visible (not the root itself).
+    // setTimeout(0) gives CodeMirror a chance to finish rendering before we fold.
+    if (this.props.foldAllOnMount && !this.longLineMode && this.editor) {
+      setTimeout(() => {
+        if (this.editor) {
+          this.editor.execCommand('foldAll');
+          // Reopen the outermost container (line 0) so root nodes stay visible
+          this.editor.foldCode({ line: 0, ch: 0 }, null, 'unfold');
+        }
+      }, 0);
+    }
   };
 
   componentDidUpdate(prevProps, prevState) {
@@ -573,6 +586,26 @@ class CodeEditor extends React.Component {
 
     if (this.props.theme !== prevProps.theme && this.editor) {
       this.editor.setOption('theme', this.props.theme === 'dark' ? 'monokai' : 'default');
+    }
+
+    // If foldAllOnMount was just enabled (toggle turned on), fold immediately.
+    if (this.props.foldAllOnMount && !prevProps.foldAllOnMount && this.editor && !this.longLineMode) {
+      setTimeout(() => {
+        if (this.editor) {
+          this.editor.execCommand('foldAll');
+          // Reopen root so immediate children are visible
+          this.editor.foldCode({ line: 0, ch: 0 }, null, 'unfold');
+        }
+      }, 0);
+    }
+
+    // If foldAllOnMount was just disabled (toggle turned off), unfold all.
+    if (!this.props.foldAllOnMount && prevProps.foldAllOnMount && this.editor && !this.longLineMode) {
+      setTimeout(() => {
+        if (this.editor) {
+          this.editor.execCommand('unfoldAll');
+        }
+      }, 0);
     }
 
     if (this.props.initialScroll !== prevProps.initialScroll) {

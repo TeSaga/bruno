@@ -43,7 +43,7 @@ const ANNOTATIONS_KEY = Symbol('annotations');
 const grammar = ohm.grammar(`Bru {
   BruFile = (meta | http | grpc | ws | query | params | headers | metadata | auths | bodies | varsandassert | script | tests | app | settings | docs | example)*
   auths = authawsv4 | authbasic | authbearer | authdigest | authNTLM | authOAuth1 | authOAuth2 | authwsse | authapikey | authedgegrid | authOauth2Configs
-  bodies = bodyjson | bodytext | bodyxml | bodysparql | bodygraphql | bodygraphqlvars | bodyforms | body | bodygrpc | bodyws
+  bodies = bodyjsonvariant | bodytextvariant | bodyxmlvariant | bodysparqlvariant | bodyformurlencoded_variant | bodyjson | bodytext | bodyxml | bodysparql | bodygraphql | bodygraphqlvars | bodyforms | body | bodygrpc | bodyws
   bodyforms = bodyformurlencoded | bodymultipart | bodyfile
   params = paramspath | paramsquery
 
@@ -180,6 +180,12 @@ const grammar = ohm.grammar(`Bru {
   bodyformurlencoded = "body:form-urlencoded" dictionary
   bodymultipart = "body:multipart-form" dictionary
   bodyfile = "body:file" dictionary
+
+  bodyjsonvariant = "body:json:variant" dictionary
+  bodytextvariant = "body:text:variant" dictionary
+  bodyxmlvariant = "body:xml:variant" dictionary
+  bodysparqlvariant = "body:sparql:variant" dictionary
+  bodyformurlencoded_variant = "body:form-urlencoded:variant" dictionary
 
 
   // Examples - multiple example blocks
@@ -1262,6 +1268,96 @@ const sem = grammar.createSemantics().addAttribute('ast', {
         grpc: [{
           name: messageName,
           content: messageContent
+        }]
+      }
+    };
+  },
+  bodyjsonvariant(_1, dictionary) {
+    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
+    const uidPair = _.find(pairs, { name: 'uid' });
+    const namePair = _.find(pairs, { name: 'name' });
+    const contentPair = _.find(pairs, { name: 'content' });
+    const selectedPair = _.find(pairs, { name: 'selected' });
+    return {
+      body: {
+        variants: [{
+          uid: uidPair ? uidPair.value : undefined,
+          type: 'json',
+          name: namePair ? namePair.value : '',
+          content: contentPair ? contentPair.value : '',
+          selected: selectedPair ? selectedPair.value === 'true' : false
+        }]
+      }
+    };
+  },
+  bodytextvariant(_1, dictionary) {
+    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
+    const uidPair = _.find(pairs, { name: 'uid' });
+    const namePair = _.find(pairs, { name: 'name' });
+    const contentPair = _.find(pairs, { name: 'content' });
+    const selectedPair = _.find(pairs, { name: 'selected' });
+    return {
+      body: {
+        variants: [{
+          uid: uidPair ? uidPair.value : undefined,
+          type: 'text',
+          name: namePair ? namePair.value : '',
+          content: contentPair ? contentPair.value : '',
+          selected: selectedPair ? selectedPair.value === 'true' : false
+        }]
+      }
+    };
+  },
+  bodyxmlvariant(_1, dictionary) {
+    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
+    const uidPair = _.find(pairs, { name: 'uid' });
+    const namePair = _.find(pairs, { name: 'name' });
+    const contentPair = _.find(pairs, { name: 'content' });
+    const selectedPair = _.find(pairs, { name: 'selected' });
+    return {
+      body: {
+        variants: [{
+          uid: uidPair ? uidPair.value : undefined,
+          type: 'xml',
+          name: namePair ? namePair.value : '',
+          content: contentPair ? contentPair.value : '',
+          selected: selectedPair ? selectedPair.value === 'true' : false
+        }]
+      }
+    };
+  },
+  bodysparqlvariant(_1, dictionary) {
+    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
+    const uidPair = _.find(pairs, { name: 'uid' });
+    const namePair = _.find(pairs, { name: 'name' });
+    const contentPair = _.find(pairs, { name: 'content' });
+    const selectedPair = _.find(pairs, { name: 'selected' });
+    return {
+      body: {
+        variants: [{
+          uid: uidPair ? uidPair.value : undefined,
+          type: 'sparql',
+          name: namePair ? namePair.value : '',
+          content: contentPair ? contentPair.value : '',
+          selected: selectedPair ? selectedPair.value === 'true' : false
+        }]
+      }
+    };
+  },
+  bodyformurlencoded_variant(_1, dictionary) {
+    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
+    const uidPair = _.find(pairs, { name: 'uid' });
+    const namePair = _.find(pairs, { name: 'name' });
+    const contentPair = _.find(pairs, { name: 'content' });
+    const selectedPair = _.find(pairs, { name: 'selected' });
+    return {
+      body: {
+        variants: [{
+          uid: uidPair ? uidPair.value : undefined,
+          type: 'formUrlEncoded',
+          name: namePair ? namePair.value : '',
+          content: contentPair ? contentPair.value : '',
+          selected: selectedPair ? selectedPair.value === 'true' : false
         }]
       }
     };

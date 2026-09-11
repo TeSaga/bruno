@@ -623,6 +623,21 @@ ${indentString(body.sparql)}
     bru += '\n}\n\n';
   }
 
+  if (body && body.variants && body.variants.length) {
+    body.variants.forEach((variant) => {
+      const blockName = `body:${variant.type === 'formUrlEncoded' ? 'form-urlencoded' : variant.type}:variant`;
+      bru += `${blockName} {\n`;
+      if (variant.uid) {
+        bru += `${indentString(`uid: ${getValueString(variant.uid)}`)}\n`;
+      }
+      bru += `${indentString(`name: ${getValueString(variant.name)}`)}\n`;
+      bru += `${indentString(`selected: ${variant.selected ? 'true' : 'false'}`)}\n`;
+      const contentValue = typeof variant.content === 'object' ? JSON.stringify(variant.content, null, 2) : variant.content || '';
+      bru += `${indentString(`content: '''\n${indentString(contentValue)}\n'''`)}\n`;
+      bru += '}\n\n';
+    });
+  }
+
   if (body && body.grpc) {
     // Convert each gRPC message to a separate body:grpc block
     if (Array.isArray(body.grpc)) {

@@ -103,7 +103,8 @@ const QueryResult = ({
   filterExpanded,
   onFilterChange,
   onFilterExpandChange,
-  docKey
+  docKey,
+  foldAllOnMount
 }) => {
   const contentType = getContentType(headers);
   const [showLargeResponse, setShowLargeResponse] = useState(false);
@@ -217,6 +218,7 @@ const QueryResult = ({
                 disableRunEventListener={disableRunEventListener}
                 displayedTheme={displayedTheme}
                 docKey={docKey}
+                foldAllOnMount={foldAllOnMount}
               />
             </div>
             {queryFilterEnabled && (

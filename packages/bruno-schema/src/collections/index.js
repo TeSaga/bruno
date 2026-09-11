@@ -191,6 +191,18 @@ const fileSchemaWithAnnotations = fileSchema.shape({
     .nullable()
 });
 
+const bodyVariantSchema = Yup.object({
+  uid: Yup.string().nullable(),
+  type: Yup.string()
+    .oneOf(['json', 'text', 'xml', 'sparql', 'formUrlEncoded'])
+    .required('variant type is required'),
+  name: Yup.string().required('variant name is required'),
+  content: Yup.string().nullable(),
+  selected: Yup.boolean().required()
+})
+  .noUnknown(true)
+  .strict();
+
 const requestBodySchema = Yup.object({
   mode: Yup.string()
     .oneOf(['none', 'json', 'text', 'xml', 'formUrlEncoded', 'multipartForm', 'graphql', 'sparql', 'file'])
@@ -202,7 +214,11 @@ const requestBodySchema = Yup.object({
   formUrlEncoded: Yup.array().of(keyValueSchema).nullable(),
   multipartForm: Yup.array().of(multipartFormSchema).nullable(),
   graphql: graphqlBodySchema.nullable(),
-  file: Yup.array().of(fileSchemaWithAnnotations).nullable()
+  file: Yup.array().of(fileSchemaWithAnnotations).nullable(),
+  variants: Yup.array().of(bodyVariantSchema).nullable(),
+  // Stores the Default body content while a variant is active, so switching
+  // back to Default restores the original value rather than the variant's.
+  defaultContent: Yup.string().nullable().optional()
 })
   .noUnknown(true)
   .strict();

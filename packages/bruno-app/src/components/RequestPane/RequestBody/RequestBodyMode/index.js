@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, Component } from 'react';
 import get from 'lodash/get';
 import {
   IconCaretDown,
@@ -19,6 +19,24 @@ import { updateRequestBody } from 'providers/ReduxStore/slices/collections/index
 import { toastError } from 'utils/common/error';
 import { prettifyJsonString } from 'utils/common/index';
 import xmlFormat from 'xml-formatter';
+import BodyVariantSelector from '../BodyVariantSelector';
+
+// Error boundary to prevent BodyVariantSelector from crashing the body tab
+class VariantSelectorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
+}
 
 const DEFAULT_MODES = [
   {
@@ -117,6 +135,9 @@ const RequestBodyMode = ({ item, collection }) => {
           </div>
         </MenuDropdown>
       </div>
+      <VariantSelectorBoundary>
+        <BodyVariantSelector item={item} collection={collection} />
+      </VariantSelectorBoundary>
       {(bodyMode === 'json' || bodyMode === 'xml') && (
         <button className="ml-2" onClick={onPrettify}>
           Prettify

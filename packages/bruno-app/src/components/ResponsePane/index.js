@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import find from 'lodash/find';
 import { useDispatch, useSelector } from 'react-redux';
 import { updateResponsePaneTab, updateResponseFormat, updateResponseViewTab, updateResponseFilter, updateResponseFilterExpanded } from 'providers/ReduxStore/slices/tabs';
+import { usePersistedState } from 'hooks/usePersistedState';
 import QueryResult from './QueryResult';
 import Overlay from './Overlay';
 import Placeholder from './Placeholder';
@@ -35,6 +36,9 @@ const ResponsePane = ({ item, collection }) => {
   const isLoading = ['queued', 'sending'].includes(item.requestState);
   const [showScriptErrorCard, setShowScriptErrorCard] = useState(false);
   const rightContentRef = useRef(null);
+
+  // Global persistent toggle: auto-collapse all JSON folds on every response load
+  const [foldAllJson, setFoldAllJson] = usePersistedState({ key: 'response:fold-all-json', default: false });
 
   const response = item.response || {};
 
@@ -172,6 +176,7 @@ const ResponsePane = ({ item, collection }) => {
             filterExpanded={focusedTab?.responseFilterExpanded}
             onFilterChange={(value) => dispatch(updateResponseFilter({ uid: activeTabUid, responseFilter: value }))}
             onFilterExpandChange={(expanded) => dispatch(updateResponseFilterExpanded({ uid: activeTabUid, responseFilterExpanded: expanded }))}
+            foldAllOnMount={foldAllJson}
           />
         );
       }
@@ -256,6 +261,31 @@ const ResponsePane = ({ item, collection }) => {
                 handleViewTabChange('editor');
               }}
             />
+            {/* Collapse JSON toggle — only visible in editor mode with JSON format */}
+            {selectedFormat === 'json' && selectedViewTab === 'editor' && (
+              <button
+                title={foldAllJson ? 'JSON auto-collapse: ON (click to disable)' : 'JSON auto-collapse: OFF (click to enable)'}
+                onClick={() => setFoldAllJson((v) => !v)}
+                data-testid="json-fold-toggle"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '1px 6px',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  borderRadius: '4px',
+                  fontFamily: 'inherit',
+                  fontWeight: foldAllJson ? 600 : 400,
+                  opacity: foldAllJson ? 1 : 0.6,
+                  border: foldAllJson ? '1.5px solid currentColor' : '1px solid currentColor',
+                  height: '20px'
+                }}
+                className={`json-fold-toggle${foldAllJson ? ' active' : ''}`}
+              >
+                {foldAllJson ? '⊟' : '⊞'} Collapse
+              </button>
+            )}
           </div>
         </>
       ) : null}

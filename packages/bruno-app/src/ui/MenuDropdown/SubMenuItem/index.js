@@ -60,7 +60,18 @@ const SubMenuItem = ({
         appendTo={() => document.body}
         offset={[0, 0]}
       >
-        <div {...itemProps}>
+        <div
+          {...itemProps}
+          onClick={(e) => {
+            // If the item has its own onClick (e.g. select variant), call it directly.
+            // The submenu still opens on hover via onMouseEnter above.
+            if (item.onClick) {
+              e.stopPropagation();
+              item.onClick();
+              onRootClose();
+            }
+          }}
+        >
           {renderMenuItemContent(item, arrowElement)}
         </div>
       </MenuDropdownComponent>

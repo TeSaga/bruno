@@ -1988,6 +1988,148 @@ export const collectionsSlice = createSlice({
               break;
             }
           }
+
+          // If a variant is selected, keep its content in sync with the main body field
+          const activeVariant = (item.draft.request.body.variants || []).find((v) => v.selected);
+          if (activeVariant) {
+            activeVariant.content = action.payload.content;
+          }
+        }
+      }
+    },
+    addBodyVariant: (state, action) => {
+      const collection = findCollectionByUid(state.collections, action.payload.collectionUid);
+      if (collection) {
+        const item = findItemInCollection(collection, action.payload.itemUid);
+        if (item && isItemARequest(item)) {
+          if (!item.draft) {
+            item.draft = cloneDeep(item);
+          }
+          const body = item.draft.request.body;
+          const mode = body.mode;
+          const supportedTypes = ['json', 'text', 'xml', 'sparql', 'formUrlEncoded'];
+          if (supportedTypes.includes(mode)) {
+            const currentContent = body[mode] || '';
+            if (!body.variants) body.variants = [];
+
+            // Deselect all existing variants
+            body.variants.forEach((v) => (v.selected = false));
+
+            const newVariant = {
+              uid: uuid(),
+              type: mode,
+              name: action.payload.name || `Variant ${body.variants.length + 1}`,
+              content: typeof currentContent === 'string' ? currentContent : '',
+              selected: true // auto-select the new variant
+            };
+            body.variants.push(newVariant);
+
+            // Sync the new variant content to the main body field
+            const supportedTextTypes = ['json', 'text', 'xml', 'sparql'];
+            if (supportedTextTypes.includes(mode)) {
+              body[mode] = newVariant.content;
+            }
+          }
+        }
+      }
+    },
+    deleteBodyVariant: (state, action) => {
+      const collection = findCollectionByUid(state.collections, action.payload.collectionUid);
+      if (collection) {
+        const item = findItemInCollection(collection, action.payload.itemUid);
+        if (item && isItemARequest(item)) {
+          if (!item.draft) {
+            item.draft = cloneDeep(item);
+          }
+          const body = item.draft.request.body;
+          if (body.variants && body.variants.length) {
+            const deletedVariant = body.variants.find((v) => v.uid === action.payload.variantUid);
+            body.variants = body.variants.filter((v) => v.uid !== action.payload.variantUid);
+
+            // If the deleted variant was selected, fall back to "default" (no selection)
+            if (deletedVariant && deletedVariant.selected) {
+              body.variants.forEach((v) => (v.selected = false));
+            }
+          }
+        }
+      }
+    },
+    selectBodyVariant: (state, action) => {
+      const collection = findCollectionByUid(state.collections, action.payload.collectionUid);
+      if (collection) {
+        const item = findItemInCollection(collection, action.payload.itemUid);
+        if (item && isItemARequest(item)) {
+          if (!item.draft) {
+            item.draft = cloneDeep(item);
+          }
+          const body = item.draft.request.body;
+          if (body.variants && body.variants.length) {
+            // Defensive: ensure all variants have uids (backward-compat for .bru files saved before uid was serialized)
+            body.variants.forEach((v) => {
+              if (!v.uid) v.uid = uuid();
+            });
+
+            const targetUid = action.payload.variantUid;
+            const targetName = action.payload.variantName;
+
+            // Resolve target variant: first by uid, then by name as fallback
+            let resolvedUid = targetUid;
+            if (!resolvedUid && targetName) {
+              const byName = body.variants.find((v) => v.name === targetName);
+              if (byName) resolvedUid = byName.uid;
+            }
+
+            const mode = body.mode;
+            const supportedTextTypes = ['json', 'text', 'xml', 'sparql'];
+
+            // Save current content back to wherever it belongs BEFORE switching
+            if (supportedTextTypes.includes(mode)) {
+              const currentlySelected = body.variants.find((v) => v.selected);
+              if (currentlySelected) {
+                // We're on a variant — save edits back to that variant's content
+                currentlySelected.content = body[mode] || '';
+              } else {
+                // We're on Default — save edits back to defaultContent
+                body.defaultContent = body[mode] || '';
+              }
+            }
+
+            body.variants.forEach((v) => {
+              v.selected = resolvedUid ? v.uid === resolvedUid : false;
+            });
+
+            // Sync the target content to the main body field
+            if (resolvedUid) {
+              const selectedVariant = body.variants.find((v) => v.uid === resolvedUid);
+              if (selectedVariant && supportedTextTypes.includes(mode)) {
+                body[mode] = selectedVariant.content;
+              }
+            } else {
+              // Going back to Default — restore the saved default content
+              if (supportedTextTypes.includes(mode) && body.defaultContent !== undefined) {
+                body[mode] = body.defaultContent;
+              }
+            }
+          }
+        }
+      }
+    },
+
+    renameBodyVariant: (state, action) => {
+      const collection = findCollectionByUid(state.collections, action.payload.collectionUid);
+      if (collection) {
+        const item = findItemInCollection(collection, action.payload.itemUid);
+        if (item && isItemARequest(item)) {
+          if (!item.draft) {
+            item.draft = cloneDeep(item);
+          }
+          const body = item.draft.request.body;
+          if (body.variants && body.variants.length) {
+            const variant = body.variants.find((v) => v.uid === action.payload.variantUid);
+            if (variant) {
+              variant.name = action.payload.name;
+            }
+          }
         }
       }
     },
@@ -4267,6 +4409,10 @@ export const {
   updateRequestAuthMode,
   updateRequestBodyMode,
   updateRequestBody,
+  addBodyVariant,
+  deleteBodyVariant,
+  selectBodyVariant,
+  renameBodyVariant,
   updateRequestGraphqlQuery,
   updateRequestGraphqlVariables,
   updateRequestScript,
