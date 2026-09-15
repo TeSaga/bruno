@@ -111,8 +111,9 @@ describe('common utils', () => {
     });
 
     it('should return months ago', () => {
-      let date = new Date();
-      date.setDate(date.getDate() - 60);
+      // Use a precise ms offset to guarantee exactly 60 days regardless of when the test runs.
+      // setDate(-60) is unreliable: the clock advancing between new Date() calls can yield 59 days.
+      const date = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
       expect(relativeDate(date)).toBe('2 months ago');
     });
   });

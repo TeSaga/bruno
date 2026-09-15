@@ -362,7 +362,18 @@ describe('createOAuth1Authorizer', () => {
         privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
       });
 
-      it('should generate a verifiable RSA-SHA1 signature', () => {
+      // RSA-SHA1 requires SHA1, which is disabled by OpenSSL 3+ in strict/FIPS mode.
+      // Detect availability at runtime so the test is skipped rather than failing.
+      const sha1Available = (() => {
+        try {
+          crypto.sign('sha1', Buffer.from('test'), privateKey);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+
+      (sha1Available ? it : it.skip)('should generate a verifiable RSA-SHA1 signature', () => {
         const oauth = createOAuth1Authorizer({
           consumer: { key: 'consumer_key', secret: 'consumer_secret' },
           signature_method: 'RSA-SHA1',

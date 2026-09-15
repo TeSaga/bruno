@@ -173,16 +173,35 @@ export const humanizeDate = (dateString) => {
   if (!dateString || typeof dateString !== 'string') {
     return 'Invalid Date';
   }
+
+  const formatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+
+  // Date-only strings (YYYY-MM-DD) are parsed as UTC midnight by the Date constructor,
+  // which causes off-by-one-day errors in timezones behind UTC (UTC-X).
+  // Parse them as local time by constructing the Date from components manually.
+  const dateOnlyMatch = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    const m = Number(month);
+    const d = Number(day);
+    // Validate ranges to reject overflow values (e.g. month=99) that JS silently wraps.
+    if (m < 1 || m > 12 || d < 1 || d > 31) {
+      return 'Invalid Date';
+    }
+    const date = new Date(Number(year), m - 1, d);
+    if (isNaN(date.getTime())) {
+      return 'Invalid Date';
+    }
+    return date.toLocaleDateString('en-US', formatOptions);
+  }
+
+  // ISO strings with explicit timezone (e.g. "2024-11-28T00:00:00Z") represent a specific UTC instant.
+  // Always display in UTC so the calendar date is consistent regardless of the local timezone.
   const date = new Date(dateString);
   if (isNaN(date.getTime())) {
     return 'Invalid Date';
   }
-
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  return date.toLocaleDateString('en-US', { ...formatOptions, timeZone: 'UTC' });
 };
 
 export const generateUidBasedOnHash = (str) => {
