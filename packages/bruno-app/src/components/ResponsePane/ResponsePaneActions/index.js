@@ -1,6 +1,7 @@
 import React, { forwardRef, useRef } from 'react';
 import styled from 'styled-components';
-import { IconDots, IconDownload, IconEraser, IconBookmark, IconCopy, IconLayoutColumns, IconLayoutRows } from '@tabler/icons';
+import { IconDots, IconDownload, IconEraser, IconBookmark, IconCopy, IconLayoutColumns, IconLayoutRows, IconFold, IconFoldUp } from '@tabler/icons';
+import ActionIcon from 'ui/ActionIcon/index';
 import MenuDropdown from 'ui/MenuDropdown';
 import ResponseDownload from '../ResponseDownload';
 import ResponseBookmark from '../ResponseBookmark';
@@ -37,7 +38,7 @@ const MenuIcon = forwardRef((props, ref) => (
 
 MenuIcon.displayName = 'MenuIcon';
 
-const ResponsePaneActions = ({ item, collection, responseSize, selectedFormat, selectedTab, data, dataBuffer }) => {
+const ResponsePaneActions = ({ item, collection, responseSize, selectedFormat, selectedTab, data, dataBuffer, foldAllJson, onToggleFoldAllJson }) => {
   const { orientation } = useResponseLayoutToggle();
 
   // Refs to access child component imperative handles (click, isDisabled)
@@ -46,12 +47,23 @@ const ResponsePaneActions = ({ item, collection, responseSize, selectedFormat, s
   const clearButtonRef = useRef(null);
   const copyButtonRef = useRef(null);
   const layoutToggleButtonRef = useRef(null);
+  const foldButtonRef = useRef(null);
+
+  const foldMenuItem = selectedFormat === 'json' && selectedTab === 'editor' ? [
+    {
+      id: 'toggle-fold-all-json',
+      label: foldAllJson ? 'Unfold JSON nodes' : 'Fold JSON nodes',
+      leftSection: foldAllJson ? IconFoldUp : IconFold,
+      onClick: () => onToggleFoldAllJson?.()
+    }
+  ] : [];
 
   /**
    * GQL response actions missing with Save response - because their is schema validation missing for saving GQL response will undo once example
    * scehem is updated
    */
   const gqlMenuItems = [
+    ...foldMenuItem,
     {
       id: 'copy-response',
       label: 'Copy response',
@@ -91,6 +103,7 @@ const ResponsePaneActions = ({ item, collection, responseSize, selectedFormat, s
   ];
 
   const menuItems = [
+    ...foldMenuItem,
     {
       id: 'copy-response',
       label: 'Copy response',
@@ -154,6 +167,26 @@ const ResponsePaneActions = ({ item, collection, responseSize, selectedFormat, s
         </MenuDropdown>
       </div>
       <div className="actions-buttons flex items-center gap-[2px]">
+        {selectedFormat === 'json' && selectedTab === 'editor' && (
+          <div
+            ref={foldButtonRef}
+            onClick={() => onToggleFoldAllJson?.()}
+            data-testid="json-fold-toggle"
+            className="cursor-pointer"
+          >
+            <ActionIcon
+              size="lg"
+              className="p-1"
+              label={foldAllJson ? 'JSON auto-collapse: ON (click to unfold)' : 'JSON auto-collapse: OFF (click to fold)'}
+            >
+              {foldAllJson ? (
+                <IconFoldUp size={16} strokeWidth={2} className="text-yellow-500" />
+              ) : (
+                <IconFold size={16} strokeWidth={2} />
+              )}
+            </ActionIcon>
+          </div>
+        )}
         <ResponseCopy
           ref={copyButtonRef}
           item={item}

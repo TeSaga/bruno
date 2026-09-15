@@ -121,21 +121,6 @@ const StyledWrapper = styled.div`
       }
     }
   }
-
-  .json-fold-toggle {
-    color: ${(props) => props.theme.colors.text.muted};
-    white-space: nowrap;
-
-    &:hover {
-      color: ${(props) => props.theme.text};
-      opacity: 1 !important;
-    }
-
-    &.active {
-      color: ${(props) => props.theme.colors.text.yellow};
-      opacity: 1 !important;
-    }
-  }
 `;
 
 export default StyledWrapper;

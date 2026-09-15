@@ -27,7 +27,7 @@ import WSMessagesList from './WsResponsePane/WSMessagesList';
 import ResponsiveTabs from 'ui/ResponsiveTabs';
 
 // Width threshold for expanded right-side action buttons
-const RIGHT_CONTENT_EXPANDED_WIDTH = 135;
+const RIGHT_CONTENT_EXPANDED_WIDTH = 170;
 
 const ResponsePane = ({ item, collection }) => {
   const dispatch = useDispatch();
@@ -261,31 +261,6 @@ const ResponsePane = ({ item, collection }) => {
                 handleViewTabChange('editor');
               }}
             />
-            {/* Collapse JSON toggle — only visible in editor mode with JSON format */}
-            {selectedFormat === 'json' && selectedViewTab === 'editor' && (
-              <button
-                title={foldAllJson ? 'JSON auto-collapse: ON (click to disable)' : 'JSON auto-collapse: OFF (click to enable)'}
-                onClick={() => setFoldAllJson((v) => !v)}
-                data-testid="json-fold-toggle"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                  padding: '1px 6px',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  borderRadius: '4px',
-                  fontFamily: 'inherit',
-                  fontWeight: foldAllJson ? 600 : 400,
-                  opacity: foldAllJson ? 1 : 0.6,
-                  border: foldAllJson ? '1.5px solid currentColor' : '1px solid currentColor',
-                  height: '20px'
-                }}
-                className={`json-fold-toggle${foldAllJson ? ' active' : ''}`}
-              >
-                {foldAllJson ? '⊟' : '⊞'} Collapse
-              </button>
-            )}
           </div>
         </>
       ) : null}
@@ -309,6 +284,8 @@ const ResponsePane = ({ item, collection }) => {
             selectedTab={selectedViewTab}
             data={response.data}
             dataBuffer={response.dataBuffer}
+            foldAllJson={foldAllJson}
+            onToggleFoldAllJson={() => setFoldAllJson((v) => !v)}
           />
         ) : null}
       </div>
