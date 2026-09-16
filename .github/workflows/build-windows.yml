@@ -2,9 +2,17 @@ name: Build Windows Executable (.exe)
 
 on:
   workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Tipo de bump de versión'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
@@ -17,7 +25,60 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ── Bump de versión y creación de tag (solo en workflow_dispatch) ────────
+      - name: Configure Git
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version & create tag
+        if: github.event_name == 'workflow_dispatch'
+        id: versioning
+        shell: pwsh
+        run: |
+          $pkgPath = "packages/bruno-electron/package.json"
+          $pkg     = Get-Content $pkgPath | ConvertFrom-Json
+
+          # Parsear versión actual
+          $parts = $pkg.version -split '\.'
+          $major = [int]$parts[0]
+          $minor = [int]$parts[1]
+          $patch = [int]$parts[2]
+
+          # Aplicar bump
+          $bump = "${{ github.event.inputs.version_bump }}"
+          if ($bump -eq "major") {
+            $major++; $minor = 0; $patch = 0
+          } elseif ($bump -eq "minor") {
+            $minor++; $patch = 0
+          } else {
+            $patch++
+          }
+
+          $newVersion = "$major.$minor.$patch"
+          Write-Host "Nueva versión: $newVersion"
+
+          # Actualizar package.json
+          $pkg.version = $newVersion
+          $pkg | ConvertTo-Json -Depth 100 | Set-Content $pkgPath
+
+          # Commit y tag
+          git add $pkgPath
+          git commit -m "chore: bump version to $newVersion [skip ci]"
+          git tag "v$newVersion"
+          git push origin HEAD:main
+          git push origin "v$newVersion"
+
+          # Exportar para pasos siguientes
+          echo "NEW_VERSION=$newVersion" >> $env:GITHUB_ENV
+          echo "TAG_NAME=v$newVersion"   >> $env:GITHUB_ENV
+
+      # ── Build ─────────────────────────────────────────────────────────────────
       - name: Setup Node Dependencies & Build Libraries
         uses: ./.github/actions/common/setup-node-deps
         with:
@@ -29,6 +90,7 @@ jobs:
       - name: Package Electron Windows (.exe)
         run: node scripts/build-electron.js
 
+      # ── Artefacto de CI ───────────────────────────────────────────────────────
       - name: Upload .exe as Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -36,7 +98,19 @@ jobs:
           path: packages/bruno-electron/out/*.exe
           retention-days: 14
 
-      - name: Release to GitHub Releases
+      # ── GitHub Release ────────────────────────────────────────────────────────
+      - name: Create GitHub Release (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: "Release ${{ env.TAG_NAME }}"
+          generate_release_notes: true
+          files: packages/bruno-electron/out/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release to GitHub Releases (tag push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
