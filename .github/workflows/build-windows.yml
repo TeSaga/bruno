@@ -35,6 +35,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
 
       - name: Bump version & create tag
         if: github.event_name == 'workflow_dispatch'
@@ -61,17 +62,17 @@ jobs:
           }
 
           $newVersion = "$major.$minor.$patch"
-          Write-Host "Nueva versión: $newVersion"
+          Write-Host "Nueva version: $newVersion"
 
           # Actualizar package.json
           $pkg.version = $newVersion
           $pkg | ConvertTo-Json -Depth 100 | Set-Content $pkgPath
 
-          # Commit y tag
+          # Commit, push a main y luego crear + pushear tag
           git add $pkgPath
           git commit -m "chore: bump version to $newVersion [skip ci]"
-          git tag "v$newVersion"
           git push origin HEAD:main
+          git tag "v$newVersion"
           git push origin "v$newVersion"
 
           # Exportar para pasos siguientes
