@@ -12,9 +12,6 @@ on:
           - patch
           - minor
           - major
-  push:
-    tags:
-      - 'v*'
 
 jobs:
   build-windows:
@@ -100,21 +97,12 @@ jobs:
           retention-days: 14
 
       # ── GitHub Release ────────────────────────────────────────────────────────
-      - name: Create GitHub Release (dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: "Release ${{ env.TAG_NAME }}"
           generate_release_notes: true
-          files: packages/bruno-electron/out/*.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Release to GitHub Releases (tag push)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
           files: packages/bruno-electron/out/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
