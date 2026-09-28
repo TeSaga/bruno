@@ -42,6 +42,35 @@ const CodeMirror = require('codemirror');
 window.jsonlint = jsonlint;
 window.JSHINT = JSHINT;
 
+/**
+ * Fold or unfold all lines in a CodeMirror editor without blocking the UI.
+ * Processes lines in chunks per animation frame so large documents don't freeze.
+ *
+ * @param {CodeMirror.Editor} editor
+ * @param {'fold'|'unfold'} action
+ * @param {number} [chunkSize=500]  lines per animation-frame batch
+ */
+function foldAllAsync(editor, action, chunkSize = 500) {
+  if (!editor) return;
+  const lineCount = editor.lineCount();
+  let line = 0;
+
+  const processChunk = () => {
+    if (!editor) return;
+    const end = Math.min(line + chunkSize, lineCount);
+    editor.operation(() => {
+      for (; line < end; line++) {
+        editor.foldCode({ line, ch: 0 }, null, action);
+      }
+    });
+    if (line < lineCount) {
+      requestAnimationFrame(processChunk);
+    }
+  };
+
+  requestAnimationFrame(processChunk);
+}
+
 const NORMAL_GUTTERS = ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'];
 const TAB_SIZE = 2;
 
@@ -479,17 +508,17 @@ class CodeEditor extends React.Component {
         : false
     );
 
-    // If the caller wants children folded on load, run foldAll then reopen
-    // just the root so the immediate children remain visible (not the root itself).
-    // setTimeout(0) gives CodeMirror a chance to finish rendering before we fold.
+    // If the caller wants children folded on load, fold asynchronously in
+    // chunks to avoid blocking the UI on large responses.
     if (this.props.foldAllOnMount && !this.longLineMode && this.editor) {
-      setTimeout(() => {
-        if (this.editor) {
-          this.editor.execCommand('foldAll');
-          // Reopen the outermost container (line 0) so root nodes stay visible
-          this.editor.foldCode({ line: 0, ch: 0 }, null, 'unfold');
-        }
-      }, 0);
+      const editor = this.editor;
+      requestAnimationFrame(() => {
+        foldAllAsync(editor, 'fold');
+        // Reopen the outermost container (line 0) so root nodes stay visible
+        requestAnimationFrame(() => {
+          if (editor) editor.foldCode({ line: 0, ch: 0 }, null, 'unfold');
+        });
+      });
     }
   };
 
@@ -588,24 +617,19 @@ class CodeEditor extends React.Component {
       this.editor.setOption('theme', this.props.theme === 'dark' ? 'monokai' : 'default');
     }
 
-    // If foldAllOnMount was just enabled (toggle turned on), fold immediately.
+    // If foldAllOnMount was just enabled (toggle turned on), fold asynchronously.
     if (this.props.foldAllOnMount && !prevProps.foldAllOnMount && this.editor && !this.longLineMode) {
-      setTimeout(() => {
-        if (this.editor) {
-          this.editor.execCommand('foldAll');
-          // Reopen root so immediate children are visible
-          this.editor.foldCode({ line: 0, ch: 0 }, null, 'unfold');
-        }
-      }, 0);
+      const editor = this.editor;
+      foldAllAsync(editor, 'fold');
+      // Reopen root so immediate children are visible once folding finishes
+      requestAnimationFrame(() => {
+        if (editor) editor.foldCode({ line: 0, ch: 0 }, null, 'unfold');
+      });
     }
 
-    // If foldAllOnMount was just disabled (toggle turned off), unfold all.
+    // If foldAllOnMount was just disabled (toggle turned off), unfold asynchronously.
     if (!this.props.foldAllOnMount && prevProps.foldAllOnMount && this.editor && !this.longLineMode) {
-      setTimeout(() => {
-        if (this.editor) {
-          this.editor.execCommand('unfoldAll');
-        }
-      }, 0);
+      foldAllAsync(this.editor, 'unfold');
     }
 
     if (this.props.initialScroll !== prevProps.initialScroll) {
