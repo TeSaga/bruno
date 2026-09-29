@@ -15,6 +15,7 @@ const SUPPORTED_MODES = ['json', 'text', 'xml', 'sparql', 'formUrlEncoded'];
 
 const BodyVariantSelector = ({ item, collection }) => {
   const dispatch = useDispatch();
+  const [renameModal, setRenameModal] = useState(null); // { uid, name } | null
 
   // Read body directly from Redux so we get live updates
   const body = useSelector((state) => {
@@ -47,6 +48,13 @@ const BodyVariantSelector = ({ item, collection }) => {
     dispatch(renameBodyVariant({ itemUid: item.uid, collectionUid: collection.uid, variantUid, name }));
   }, [dispatch, item.uid, collection.uid]);
 
+  const confirmRename = () => {
+    if (renameModal && renameModal.name.trim()) {
+      handleRename(renameModal.uid, renameModal.name.trim());
+    }
+    setRenameModal(null);
+  };
+
   const menuItems = useMemo(() => {
     const items = [
       {
@@ -72,12 +80,7 @@ const BodyVariantSelector = ({ item, collection }) => {
               id: `rename-${variantKey}`,
               label: 'Rename',
               leftSection: IconPencil,
-              onClick: () => {
-                const newName = window.prompt('Rename variant:', variant.name);
-                if (newName && newName.trim()) {
-                  handleRename(variant.uid, newName.trim());
-                }
-              }
+              onClick: () => setRenameModal({ uid: variant.uid, name: variant.name })
             },
             {
               id: `delete-${variantKey}`,
@@ -99,7 +102,7 @@ const BodyVariantSelector = ({ item, collection }) => {
     });
 
     return items;
-  }, [variants, activeVariant, handleSelect, handleAdd, handleDelete, handleRename]);
+  }, [variants, activeVariant, handleSelect, handleAdd, handleDelete]);
 
   const activeId = activeVariant
     ? (activeVariant.uid || `__variant_${variants.indexOf(activeVariant)}__`)
@@ -119,6 +122,28 @@ const BodyVariantSelector = ({ item, collection }) => {
           <IconChevronDown size={12} strokeWidth={2} className="variant-caret" />
         </div>
       </MenuDropdown>
+
+      {renameModal && (
+        <div className="rename-modal-overlay" onClick={() => setRenameModal(null)}>
+          <div className="rename-modal" onClick={(e) => e.stopPropagation()}>
+            <p className="rename-modal-title">Rename variant</p>
+            <input
+              autoFocus
+              className="rename-modal-input"
+              value={renameModal.name}
+              onChange={(e) => setRenameModal((m) => ({ ...m, name: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmRename();
+                if (e.key === 'Escape') setRenameModal(null);
+              }}
+            />
+            <div className="rename-modal-actions">
+              <button className="rename-modal-cancel" onClick={() => setRenameModal(null)}>Cancel</button>
+              <button className="rename-modal-confirm" onClick={confirmRename}>Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
     </StyledWrapper>
   );
 };
