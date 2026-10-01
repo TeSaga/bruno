@@ -96,7 +96,8 @@ export const tabsSlice = createSlice({
         'openapi-sync',
         'openapi-spec',
         'changelog',
-        'mock-server'
+        'mock-server',
+        'utils'
       ];
 
       const existingTab = find(state.tabs, (tab) => tab.uid === uid);

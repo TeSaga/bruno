@@ -47,6 +47,7 @@ import OpenAPISpecTab from 'components/OpenAPISpecTab';
 import MockServerDashboard from 'components/MockServer/MockServerDashboard';
 import MockResponse from 'components/MockServer/MockResponse';
 import ChangelogTab from 'components/ChangelogTab';
+import UtilsTab from 'components/Utils';
 import { resolveMockServerInstance } from 'utils/mock-server/mock-server-instances';
 import CollapsedPanelIndicator from './CollapsedPanelIndicator';
 import { clampRequestHeightForResponse } from './paneSize';
@@ -429,6 +430,10 @@ const RequestTabPanel = () => {
 
   if (focusedTab.type === 'preferences') {
     return <Preferences />;
+  }
+
+  if (focusedTab.type === 'utils') {
+    return <UtilsTab />;
   }
 
   if (focusedTab.type === 'changelog') {

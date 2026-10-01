@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import find from 'lodash/find';
-import { IconSettings, IconCookie, IconTool, IconSearch, IconPalette, IconBrandGithub } from '@tabler/icons';
+import { IconSettings, IconCookie, IconTool, IconSearch, IconPalette, IconBrandGithub, IconTools } from '@tabler/icons';
 import Mousetrap from 'mousetrap';
 import { getKeyBindingsForActionAllOS } from 'providers/Hotkeys/keyMappings';
 import ToolHint from 'components/ToolHint';
@@ -43,6 +43,18 @@ const StatusBar = () => {
       addTab({
         type: 'preferences',
         uid: collectionUid ? `${collectionUid}-preferences` : 'preferences',
+        collectionUid: collectionUid
+      })
+    );
+  };
+
+  const handleUtilsClick = () => {
+    const collectionUid = activeTab?.collectionUid || activeWorkspace?.scratchCollectionUid;
+
+    dispatch(
+      addTab({
+        type: 'utils',
+        uid: collectionUid ? `${collectionUid}-utils` : 'utils',
         collectionUid: collectionUid
       })
     );
@@ -144,6 +156,19 @@ const StatusBar = () => {
               <div className="console-button-content">
                 <IconCookie size={16} strokeWidth={1.5} aria-hidden="true" />
                 <span className="console-label">Cookies</span>
+              </div>
+            </button>
+
+            <button
+              className="status-bar-button"
+              data-trigger="utils"
+              onClick={handleUtilsClick}
+              tabIndex={0}
+              aria-label="Open Utils (Base64 & JWT)"
+            >
+              <div className="console-button-content">
+                <IconTools size={16} strokeWidth={1.5} aria-hidden="true" />
+                <span className="console-label">Utils</span>
               </div>
             </button>
 

@@ -1,12 +1,33 @@
 import React, { useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { IconMenu2 } from '@tabler/icons';
+import find from 'lodash/find';
 import MenuDropdown from 'ui/MenuDropdown';
 import ActionIcon from 'ui/ActionIcon';
+import { addTab } from 'providers/ReduxStore/slices/tabs';
 import StyledWrapper from './StyledWrapper';
 
 const AppMenu = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { ipcRenderer } = window;
+  const dispatch = useDispatch();
+  const activeWorkspaceUid = useSelector((state) => state.workspaces.activeWorkspaceUid);
+  const workspaces = useSelector((state) => state.workspaces.workspaces);
+  const tabs = useSelector((state) => state.tabs.tabs);
+  const activeTabUid = useSelector((state) => state.tabs.activeTabUid);
+  const activeTab = find(tabs, (t) => t.uid === activeTabUid);
+  const activeWorkspace = workspaces.find((w) => w.uid === activeWorkspaceUid);
+
+  const handleOpenUtils = () => {
+    const collectionUid = activeTab?.collectionUid || activeWorkspace?.scratchCollectionUid;
+    dispatch(
+      addTab({
+        type: 'utils',
+        uid: collectionUid ? `${collectionUid}-utils` : 'utils',
+        collectionUid
+      })
+    );
+  };
 
   const menuItems = [
     {
@@ -87,6 +108,11 @@ const AppMenu = () => {
           label: 'Developer Tools',
           rightSection: <span className="shortcut">Ctrl+Shift+I</span>,
           onClick: () => ipcRenderer?.invoke('renderer:toggle-devtools')
+        },
+        {
+          id: 'developer-utils',
+          label: 'Utilities (Base64 & JWT)',
+          onClick: handleOpenUtils
         },
         { type: 'divider', id: 'view-div-1' },
         {
