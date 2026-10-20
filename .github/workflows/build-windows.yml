@@ -39,8 +39,9 @@ jobs:
         id: versioning
         shell: pwsh
         run: |
-          $pkgPath = "packages/bruno-electron/package.json"
-          $pkg     = Get-Content $pkgPath | ConvertFrom-Json
+          $electronPkgPath = "packages/bruno-electron/package.json"
+          $appPkgPath      = "packages/bruno-app/package.json"
+          $pkg             = Get-Content $electronPkgPath | ConvertFrom-Json
 
           # Parsear versión actual
           $parts = $pkg.version -split '\.'
@@ -61,12 +62,16 @@ jobs:
           $newVersion = "$major.$minor.$patch"
           Write-Host "Nueva version: $newVersion"
 
-          # Actualizar package.json
+          # Actualizar package.json en electron y app
           $pkg.version = $newVersion
-          $pkg | ConvertTo-Json -Depth 100 | Set-Content $pkgPath
+          $pkg | ConvertTo-Json -Depth 100 | Set-Content $electronPkgPath
+
+          $appPkg = Get-Content $appPkgPath | ConvertFrom-Json
+          $appPkg.version = $newVersion
+          $appPkg | ConvertTo-Json -Depth 100 | Set-Content $appPkgPath
 
           # Commit, push a main y luego crear + pushear tag
-          git add $pkgPath
+          git add $electronPkgPath $appPkgPath
           git commit -m "chore: bump version to $newVersion [skip ci]"
           git push origin HEAD:main
           git tag "v$newVersion"

@@ -132,19 +132,29 @@ const applyEditorProfile = (
     collection: props.collection,
     item: props.item
   } : false);
-  editor.setOption('mode', degraded ? null : (props.mode || 'application/ld+json'));
 
   if (degraded) {
+    editor.setOption('mode', null);
     disableEnhancedFeatures?.();
     editor.setOption('lint', false);
     return;
   }
 
+  // When switching back to normal mode, defer the expensive syntax highlighting
+  // (mode) and lint to subsequent animation frames to avoid blocking the UI on
+  // large documents.
   enableEnhancedFeatures?.();
-  editor.setOption(
-    'lint',
-    props.mode && String(value ?? '').trim().length > 0 ? lintOptions : false
-  );
+  requestAnimationFrame(() => {
+    if (!editor) return;
+    editor.setOption('mode', props.mode || 'application/ld+json');
+    requestAnimationFrame(() => {
+      if (!editor) return;
+      editor.setOption(
+        'lint',
+        props.mode && String(value ?? '').trim().length > 0 ? lintOptions : false
+      );
+    });
+  });
 };
 
 class CodeEditor extends React.Component {
