@@ -62,7 +62,7 @@ const stringifyHttpRequest = (item: BrunoItem): string => {
     }
 
     // body
-    const body: HttpRequestBody | undefined = toOpenCollectionBody(brunoRequest.body);
+    const body = toOpenCollectionBody(brunoRequest.body);
     if (body) {
       http.body = body;
     }
@@ -171,7 +171,7 @@ const stringifyHttpRequest = (item: BrunoItem): string => {
 
           const exampleBody = toOpenCollectionBody(example.request.body);
           if (exampleBody !== undefined) {
-            ocExample.request.body = exampleBody;
+            ocExample.request.body = (Array.isArray(exampleBody) ? exampleBody[0]?.body : exampleBody) as HttpRequestBody;
           }
         }
 

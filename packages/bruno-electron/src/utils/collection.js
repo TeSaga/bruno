@@ -652,6 +652,21 @@ const hydrateRequestWithUuid = (request, pathname) => {
   file.forEach((param) => (param.uid = uuid()));
   const wsMessages = get(request, 'request.body.ws', []);
   wsMessages.forEach((msg) => (msg.uid = uuid()));
+  const variants = get(request, 'request.body.variants', []);
+  variants.forEach((v) => {
+    if (!v.uid) {
+      v.uid = uuid();
+    }
+  });
+
+  const activeVariant = variants.find((v) => v.selected);
+  const mode = get(request, 'request.body.mode');
+  if (activeVariant && ['json', 'text', 'xml', 'sparql'].includes(mode) && request?.request?.body) {
+    if (request.request.body.defaultContent === undefined) {
+      request.request.body.defaultContent = request.request.body[mode] || '';
+    }
+    request.request.body[mode] = activeVariant.content;
+  }
   examples.forEach((example, eIndex) => {
     example.uid = getExampleUid(pathname, eIndex);
     example.itemUid = request.uid;

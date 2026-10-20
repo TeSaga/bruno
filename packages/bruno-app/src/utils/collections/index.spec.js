@@ -2,6 +2,9 @@ const { describe, it, expect } = require('@jest/globals');
 import {
   mergeHeaders,
   transformRequestToSaveToFilesystem,
+  deleteUidsInItem,
+  refreshUidsInItem,
+  areItemsTheSameExceptSeqUpdate,
   getCollectionItemCounts,
   getVariableScope,
   isVariableSecret,
@@ -99,6 +102,131 @@ describe('transformRequestToSaveToFilesystem', () => {
 
     expect(transformed.request.params[0].annotations).toEqual([{ name: 'param-note', value: 'keep me' }]);
     expect(transformed.request.headers[0].annotations).toEqual([{ name: 'header-note', value: 'keep me' }]);
+  });
+
+  it('preserves defaultContent as body[mode] and keeps variants when variant is active', () => {
+    const item = {
+      uid: 'req-1',
+      type: 'http-request',
+      name: 'Variant Request',
+      seq: 1,
+      request: {
+        method: 'POST',
+        url: 'https://example.com',
+        params: [],
+        headers: [],
+        auth: { mode: 'none' },
+        body: {
+          mode: 'json',
+          json: '{"active_variant": 1}',
+          defaultContent: '{"default_content": 1}',
+          variants: [
+            {
+              uid: 'var-1',
+              type: 'json',
+              name: 'Variant 1',
+              content: '{"active_variant": 1}',
+              selected: true
+            }
+          ]
+        }
+      }
+    };
+
+    const transformed = transformRequestToSaveToFilesystem(item);
+    expect(transformed.request.body.json).toBe('{"default_content": 1}');
+    expect(transformed.request.body.defaultContent).toBeUndefined();
+    expect(transformed.request.body.variants).toHaveLength(1);
+    expect(transformed.request.body.variants[0]).toMatchObject({
+      name: 'Variant 1',
+      selected: true,
+      content: '{"active_variant": 1}'
+    });
+  });
+});
+
+describe('body variants UID handling', () => {
+  it('deleteUidsInItem: strips UIDs from body variants and ws messages', () => {
+    const item = {
+      uid: 'item-1',
+      request: {
+        body: {
+          variants: [
+            { uid: 'v-1', name: 'Var 1' },
+            { uid: 'v-2', name: 'Var 2' }
+          ],
+          ws: [
+            { uid: 'ws-1', name: 'Msg 1' }
+          ]
+        }
+      }
+    };
+
+    deleteUidsInItem(item);
+    expect(item.uid).toBeUndefined();
+    expect(item.request.body.variants[0].uid).toBeUndefined();
+    expect(item.request.body.variants[1].uid).toBeUndefined();
+    expect(item.request.body.ws[0].uid).toBeUndefined();
+  });
+
+  it('refreshUidsInItem: assigns new UIDs to body variants', () => {
+    const item = {
+      uid: 'item-1',
+      request: {
+        body: {
+          variants: [
+            { uid: 'old-1', name: 'Var 1' }
+          ]
+        }
+      }
+    };
+
+    refreshUidsInItem(item);
+    expect(item.uid).not.toBe('item-1');
+    expect(item.request.body.variants[0].uid).toBeDefined();
+    expect(item.request.body.variants[0].uid).not.toBe('old-1');
+  });
+
+  it('areItemsTheSameExceptSeqUpdate: returns true when only seq updates on item with variants', () => {
+    const item1 = {
+      uid: 'item-1',
+      seq: 1,
+      type: 'http-request',
+      name: 'Test',
+      request: {
+        method: 'POST',
+        url: 'https://example.com',
+        body: {
+          mode: 'json',
+          json: '{"v": 1}',
+          defaultContent: '{"d": 1}',
+          variants: [
+            { uid: 'v-1', type: 'json', name: 'Var 1', content: '{"v": 1}', selected: true }
+          ]
+        }
+      }
+    };
+
+    const item2 = {
+      uid: 'item-2',
+      seq: 2,
+      type: 'http-request',
+      name: 'Test',
+      request: {
+        method: 'POST',
+        url: 'https://example.com',
+        body: {
+          mode: 'json',
+          json: '{"v": 1}',
+          defaultContent: '{"d": 1}',
+          variants: [
+            { uid: 'v-new', type: 'json', name: 'Var 1', content: '{"v": 1}', selected: true }
+          ]
+        }
+      }
+    };
+
+    expect(areItemsTheSameExceptSeqUpdate(item1, item2)).toBe(true);
   });
 });
 

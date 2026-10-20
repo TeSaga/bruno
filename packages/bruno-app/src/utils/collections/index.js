@@ -835,8 +835,15 @@ export const transformRequestToSaveToFilesystem = (item) => {
       auth: _item.request.auth,
       body: (() => {
         // `defaultContent` is transient UI state used to restore the Default body
-        // when switching back from a variant. It must not be persisted to the .bru file.
-        const { defaultContent: _, ...bodyToSave } = (_item.request.body || {});
+        // when switching back from a variant. It must not be persisted to the file.
+        // If an active variant was selected, restore defaultContent into body[mode]
+        // so the default request body is preserved rather than overwritten by the variant.
+        const body = _item.request.body || {};
+        const { defaultContent, ...bodyToSave } = body;
+        const activeVariant = (body.variants || []).find((v) => v.selected);
+        if (activeVariant && defaultContent !== undefined && ['json', 'text', 'xml', 'sparql'].includes(body.mode)) {
+          bodyToSave[body.mode] = defaultContent;
+        }
         return bodyToSave;
       })(),
       script: _item.request.script,
@@ -1181,6 +1188,7 @@ export const refreshUidsInItem = (item) => {
   each(get(item, 'request.body.formUrlEncoded'), (param) => (param.uid = uuid()));
   each(get(item, 'request.body.file'), (param) => (param.uid = uuid()));
   each(get(item, 'request.body.ws'), (msg) => (msg.uid = uuid()));
+  each(get(item, 'request.body.variants'), (v) => (v.uid = uuid()));
   each(get(item, 'request.assertions'), (assertion) => (assertion.uid = uuid()));
 
   return item;
@@ -1194,6 +1202,8 @@ export const deleteUidsInItem = (item) => {
   const bodyMultipartForm = get(item, 'request.body.multipartForm', []);
   const file = get(item, 'request.body.file', []);
   const assertions = get(item, 'request.assertions', []);
+  const ws = get(item, 'request.body.ws', []);
+  const variants = get(item, 'request.body.variants', []);
 
   params.forEach((param) => delete param.uid);
   headers.forEach((header) => delete header.uid);
@@ -1201,6 +1211,8 @@ export const deleteUidsInItem = (item) => {
   bodyMultipartForm.forEach((param) => delete param.uid);
   file.forEach((param) => delete param.uid);
   assertions.forEach((assertion) => delete assertion.uid);
+  ws.forEach((msg) => delete msg.uid);
+  variants.forEach((v) => delete v.uid);
 
   return item;
 };

@@ -1,6 +1,7 @@
 import type { HttpRequestBody as BrunoHttpRequestBody } from '@usebruno/schema-types/requests/http';
 import type {
   HttpRequestBody,
+  HttpRequestBodyVariant,
   RawBody,
   FormUrlEncodedBody,
   FormUrlEncodedEntry,
@@ -14,44 +15,60 @@ import type { FileEntry as BrunoFileEntry } from '@usebruno/schema-types/common/
 import type { KeyValue as BrunoKeyValue } from '@usebruno/schema-types/common/key-value';
 import { uuid, ensureString } from '../../../utils';
 
-export const toOpenCollectionBody = (body: BrunoHttpRequestBody | null | undefined): HttpRequestBody | undefined => {
-  if (!body) {
-    return undefined;
-  }
+export interface BrunoBodyVariant {
+  uid?: string;
+  type: 'json' | 'text' | 'xml' | 'sparql' | 'formUrlEncoded';
+  name: string;
+  content: string;
+  selected: boolean;
+}
 
+export type BrunoHttpRequestBodyWithVariants = BrunoHttpRequestBody & {
+  variants?: BrunoBodyVariant[] | null;
+  defaultContent?: string | null;
+};
+
+const convertSingleBodyToOpenCollection = (
+  body: BrunoHttpRequestBodyWithVariants,
+  contentOverride?: string
+): HttpRequestBody | undefined => {
   switch (body.mode) {
     case 'none':
       return undefined;
 
-    case 'json':
+    case 'json': {
       const rawBody: RawBody = {
         type: 'json',
-        data: body.json || ''
+        data: contentOverride !== undefined ? contentOverride : (body.json || '')
       };
       return rawBody;
+    }
 
-    case 'text':
+    case 'text': {
       const textBody: RawBody = {
         type: 'text',
-        data: body.text || ''
+        data: contentOverride !== undefined ? contentOverride : (body.text || '')
       };
       return textBody;
+    }
 
-    case 'xml':
+    case 'xml': {
       const xmlBody: RawBody = {
         type: 'xml',
-        data: body.xml || ''
+        data: contentOverride !== undefined ? contentOverride : (body.xml || '')
       };
       return xmlBody;
+    }
 
-    case 'sparql':
+    case 'sparql': {
       const sparqlBody: RawBody = {
         type: 'sparql',
-        data: body.sparql || ''
+        data: contentOverride !== undefined ? contentOverride : (body.sparql || '')
       };
       return sparqlBody;
+    }
 
-    case 'formUrlEncoded':
+    case 'formUrlEncoded': {
       const formEntries: FormUrlEncodedEntry[] = body.formUrlEncoded?.map((entry: BrunoKeyValue): FormUrlEncodedEntry => {
         const formEntry: FormUrlEncodedEntry = {
           name: entry.name || '',
@@ -74,8 +91,9 @@ export const toOpenCollectionBody = (body: BrunoHttpRequestBody | null | undefin
         ...(formEntries.length > 0 && { data: formEntries })
       } as FormUrlEncodedBody;
       return formBody;
+    }
 
-    case 'multipartForm':
+    case 'multipartForm': {
       const multipartEntries: MultipartFormEntry[] = body.multipartForm?.map((entry): MultipartFormEntry => {
         const multipartEntry: MultipartFormEntry = {
           name: entry.name || '',
@@ -103,8 +121,9 @@ export const toOpenCollectionBody = (body: BrunoHttpRequestBody | null | undefin
         ...(multipartEntries.length > 0 && { data: multipartEntries })
       } as MultipartFormBody;
       return multipartBody;
+    }
 
-    case 'file':
+    case 'file': {
       const fileEntries: FileBodyVariant[] = body.file?.map((file): FileBodyVariant => {
         const fileEntry: FileBodyVariant = {
           filePath: file.filePath || '',
@@ -124,6 +143,7 @@ export const toOpenCollectionBody = (body: BrunoHttpRequestBody | null | undefin
         ...(fileEntries.length > 0 && { data: fileEntries })
       } as FileBody;
       return fileBody;
+    }
 
     case 'graphql':
       // GraphQL body is handled separately in GraphQL request stringify
@@ -134,7 +154,64 @@ export const toOpenCollectionBody = (body: BrunoHttpRequestBody | null | undefin
   }
 };
 
-export const toBrunoBody = (body: HttpRequestBody | null | undefined): BrunoHttpRequestBody | undefined => {
+export const toOpenCollectionBody = (
+  body: BrunoHttpRequestBodyWithVariants | null | undefined
+): HttpRequestBody | HttpRequestBodyVariant[] | undefined => {
+  if (!body) {
+    return undefined;
+  }
+
+  // If there are variants, serialize as HttpRequestBodyVariant[]
+  if (body.variants && body.variants.length > 0) {
+    const hasActiveVariant = body.variants.some((v) => v.selected);
+    const defaultContent = body.defaultContent !== undefined && body.defaultContent !== null
+      ? body.defaultContent
+      : undefined;
+
+    const defaultHttpBody = convertSingleBodyToOpenCollection(body, defaultContent) || {
+      type: (['json', 'text', 'xml', 'sparql'].includes(body.variants[0]?.type)
+        ? body.variants[0].type
+        : 'json') as RawBody['type'],
+      data: ''
+    };
+
+    const defaultVariant: HttpRequestBodyVariant = {
+      title: 'Default',
+      selected: !hasActiveVariant,
+      body: defaultHttpBody
+    };
+
+    const variantBodies: HttpRequestBodyVariant[] = body.variants.map((v) => {
+      const variantType = v.type === 'formUrlEncoded' ? 'form-urlencoded' : v.type;
+      let variantBody: HttpRequestBody;
+      if (variantType === 'form-urlencoded') {
+        variantBody = {
+          type: 'form-urlencoded',
+          data: []
+        };
+      } else {
+        variantBody = {
+          type: (['json', 'text', 'xml', 'sparql'].includes(variantType) ? variantType : 'json') as RawBody['type'],
+          data: v.content || ''
+        };
+      }
+
+      const variantItem: HttpRequestBodyVariant = {
+        title: v.name,
+        selected: v.selected ?? false,
+        body: variantBody
+      };
+
+      return variantItem;
+    });
+
+    return [defaultVariant, ...variantBodies];
+  }
+
+  return convertSingleBodyToOpenCollection(body);
+};
+
+const parseSingleBrunoBody = (body: HttpRequestBody | null | undefined): BrunoHttpRequestBodyWithVariants => {
   if (!body) {
     return {
       mode: 'none',
@@ -145,11 +222,12 @@ export const toBrunoBody = (body: HttpRequestBody | null | undefined): BrunoHttp
       formUrlEncoded: [],
       multipartForm: [],
       graphql: null,
-      file: []
+      file: [],
+      variants: []
     };
   }
 
-  const brunoBody: BrunoHttpRequestBody = {
+  const brunoBody: BrunoHttpRequestBodyWithVariants = {
     mode: 'none',
     json: null,
     text: null,
@@ -158,7 +236,8 @@ export const toBrunoBody = (body: HttpRequestBody | null | undefined): BrunoHttp
     formUrlEncoded: [],
     multipartForm: [],
     graphql: null,
-    file: []
+    file: [],
+    variants: []
   };
 
   switch (body.type) {
@@ -253,4 +332,52 @@ export const toBrunoBody = (body: HttpRequestBody | null | undefined): BrunoHttp
   }
 
   return brunoBody;
+};
+
+export const toBrunoBody = (
+  body: HttpRequestBody | HttpRequestBodyVariant[] | null | undefined
+): BrunoHttpRequestBodyWithVariants | undefined => {
+  if (!body) {
+    return parseSingleBrunoBody(null);
+  }
+
+  if (Array.isArray(body)) {
+    const defaultVariant = body.find((v) => v.title === 'Default') || body[0];
+    const otherVariants = body.filter((v) => v !== defaultVariant);
+
+    const brunoBody = parseSingleBrunoBody(defaultVariant?.body);
+
+    brunoBody.variants = otherVariants.map((v) => {
+      let type: 'json' | 'text' | 'xml' | 'sparql' | 'formUrlEncoded' = 'json';
+      let content = '';
+
+      if (v.body) {
+        if (v.body.type === 'form-urlencoded') {
+          type = 'formUrlEncoded';
+          content = '';
+        } else if (['json', 'text', 'xml', 'sparql'].includes(v.body.type)) {
+          type = v.body.type as any;
+          content = (v.body as RawBody).data || '';
+        }
+      }
+
+      return {
+        uid: (v as any).uid || uuid(),
+        name: v.title,
+        type,
+        content,
+        selected: v.selected ?? false
+      };
+    });
+
+    const activeVariant = brunoBody.variants.find((v) => v.selected);
+    if (activeVariant && ['json', 'text', 'xml', 'sparql'].includes(brunoBody.mode)) {
+      brunoBody.defaultContent = (brunoBody as any)[brunoBody.mode] || '';
+      (brunoBody as any)[brunoBody.mode] = activeVariant.content;
+    }
+
+    return brunoBody;
+  }
+
+  return parseSingleBrunoBody(body);
 };
