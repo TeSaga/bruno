@@ -18,6 +18,23 @@ describe('Request Schema Validation', () => {
     expect(isValid).toBeTruthy();
   });
 
+  it('keeps body variants in the validated output that save paths persist', async () => {
+    const variants = [
+      { uid: uuid(), type: 'json', name: 'Happy path', content: '{"ok": true}', selected: true },
+      { uid: uuid(), type: 'text', name: 'Plain', content: 'hello', selected: false }
+    ];
+    const request = {
+      url: 'https://example.com',
+      method: 'POST',
+      headers: [],
+      params: [],
+      body: { mode: 'json', json: '{"id": 1}', variants }
+    };
+
+    const validated = await requestSchema.validate(request);
+    expect(validated.body.variants).toEqual(variants);
+  });
+
   it('request schema must validate successfully - vars with dataType', async () => {
     const request = {
       url: 'https://restcountries.com/v2/alpha/in',

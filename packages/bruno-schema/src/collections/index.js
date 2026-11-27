@@ -202,8 +202,7 @@ const bodyVariantSchema = Yup.object({
   content: Yup.string().nullable(),
   selected: Yup.boolean().required()
 })
-  .noUnknown(true)
-  .strict();
+  .noUnknown(true);
 
 const requestBodySchema = Yup.object({
   mode: Yup.string()
