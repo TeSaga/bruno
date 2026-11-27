@@ -25,7 +25,8 @@ const SINGLETON_TAB_TYPES = new Set([
   'workspaceEnvironments',
   'openapi-sync',
   'openapi-spec',
-  'mock-server'
+  'mock-server',
+  'utils'
 ]);
 
 const NON_REPLACEABLE_SINGLETON_TAB_TYPES = new Set([
@@ -725,7 +726,8 @@ export const deserializeTab = (snapshotTab, collection) => {
 
   const isCollectionScopedSingleton = type === 'preferences'
     || type === 'environment-settings'
-    || type === 'global-environment-settings';
+    || type === 'global-environment-settings'
+    || type === 'utils';
 
   const needsTypeBasedFallback = accessor === 'type' || (accessor === 'pathname' && !pathname && isCollectionScopedSingleton);
 
@@ -762,6 +764,8 @@ export const deserializeTab = (snapshotTab, collection) => {
       tab.uid = `${collection.uid}-environment-settings`;
     } else if (type === 'global-environment-settings') {
       tab.uid = `${collection.uid}-global-environment-settings`;
+    } else if (type === 'utils') {
+      tab.uid = `${collection.uid}-utils`;
     } else if (NON_REPLACEABLE_SINGLETON_TAB_TYPES.has(type)) {
       tab.uid = uuid();
     } else {

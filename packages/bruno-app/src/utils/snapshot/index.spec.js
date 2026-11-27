@@ -624,6 +624,28 @@ describe('deserializeTab', () => {
     expect(tab.uid).toBe('collection-uid-preferences');
   });
 
+  it('serializes and restores the utils tab with the uid the status bar opens it with', () => {
+    const utilsTab = { uid: 'collection-uid-utils', type: 'utils', collectionUid: 'collection-uid', permanent: true };
+
+    const snapshotTab = serializeTab(utilsTab, collection);
+    expect(snapshotTab.accessor).toBe('type');
+
+    const tab = deserializeTab(snapshotTab, collection);
+    expect(tab.type).toBe('utils');
+    expect(tab.uid).toBe('collection-uid-utils');
+  });
+
+  it('restores utils tabs saved by the pathname accessor without a pathname', () => {
+    const snapshotTab = {
+      type: 'utils',
+      accessor: 'pathname',
+      permanent: true
+    };
+
+    const tab = deserializeTab(snapshotTab, collection);
+    expect(tab.uid).toBe('collection-uid-utils');
+  });
+
   it('restores global environment settings uid scoped to collection uid', () => {
     const snapshotTab = {
       type: 'global-environment-settings',
