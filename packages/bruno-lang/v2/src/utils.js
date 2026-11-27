@@ -118,6 +118,13 @@ const escapeMultilineDescription = (value) =>
 const unescapeMultilineDescription = (value) =>
   value.split('\\\'\\\'\\\'').join('\'\'\'').split('\\\\\'').join('\\\'');
 
+// Body variant content is arbitrary user text stored inside a ''' block, so a literal ''' in it would
+// end the block early. Escaping every backslash and single quote (one character at a time) guarantees
+// the written content never contains two adjacent quotes, whatever the length of a run of quotes.
+const escapeBodyVariantContent = (value) => value.replace(/[\\']/g, '\\$&');
+
+const unescapeBodyVariantContent = (value) => value.replace(/\\([\\'])/g, '$1');
+
 const getValueString = (value) => {
   // Handle null, undefined, and empty strings
   if (!value && value !== 0 && value !== false) {
@@ -245,6 +252,8 @@ module.exports = {
   unescapeAnnotationDoubleQuotedArg,
   escapeMultilineDescription,
   unescapeMultilineDescription,
+  escapeBodyVariantContent,
+  unescapeBodyVariantContent,
   parseAnnotationMultilineTextBlock,
   getValueString,
   getKeyString,

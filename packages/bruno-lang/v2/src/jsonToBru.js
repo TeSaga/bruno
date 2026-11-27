@@ -1,5 +1,14 @@
 const _ = require('lodash');
-const { indentString, getValueString, getKeyString, getValueUrl, serializeVar, serializeAnnotations, buildAnnotationsFromKVItem } = require('./utils');
+const {
+  indentString,
+  getValueString,
+  getKeyString,
+  getValueUrl,
+  serializeVar,
+  serializeAnnotations,
+  buildAnnotationsFromKVItem,
+  escapeBodyVariantContent
+} = require('./utils');
 const jsonToExampleBru = require('./example/jsonToBru');
 
 const enabled = (items = [], key = 'enabled') => items.filter((item) => item[key]);
@@ -633,7 +642,13 @@ ${indentString(body.sparql)}
       bru += `${indentString(`name: ${getValueString(variant.name)}`)}\n`;
       bru += `${indentString(`selected: ${variant.selected ? 'true' : 'false'}`)}\n`;
       const contentValue = typeof variant.content === 'object' ? JSON.stringify(variant.content, null, 2) : variant.content || '';
-      bru += `${indentString(`content: '''\n${indentString(contentValue)}\n'''`)}\n`;
+      // Escaping only when needed keeps the common case readable and leaves existing files byte-identical.
+      const needsEscaping = contentValue.includes('\'\'\'');
+      if (needsEscaping) {
+        bru += `${indentString('contentEscaped: true')}\n`;
+      }
+      const writtenContent = needsEscaping ? escapeBodyVariantContent(contentValue) : contentValue;
+      bru += `${indentString(`content: '''\n${indentString(writtenContent)}\n'''`)}\n`;
       bru += '}\n\n';
     });
   }

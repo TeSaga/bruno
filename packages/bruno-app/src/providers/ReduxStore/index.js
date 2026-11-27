@@ -43,11 +43,7 @@ export const store = configureStore({
     chat: chatReducer,
     collectionMigration: collectionMigrationReducer
   },
-  middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({
-      serializableCheck: false,
-      immutableCheck: false
-    }).concat(middleware)
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(middleware)
 });
 
 export default store;

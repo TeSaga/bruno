@@ -11,7 +11,7 @@ import { findCollectionByUid, findItemInCollection } from 'utils/collections';
 import MenuDropdown from 'ui/MenuDropdown';
 import StyledWrapper from './StyledWrapper';
 
-const SUPPORTED_MODES = ['json', 'text', 'xml', 'sparql', 'formUrlEncoded'];
+const SUPPORTED_MODES = ['json', 'text', 'xml', 'sparql'];
 
 const BodyVariantSelector = ({ item, collection }) => {
   const dispatch = useDispatch();
@@ -29,8 +29,6 @@ const BodyVariantSelector = ({ item, collection }) => {
   const variants = body?.variants || [];
   const activeVariant = variants.find((v) => v.selected) || null;
   const label = activeVariant ? activeVariant.name : 'Default';
-
-  if (!body || !SUPPORTED_MODES.includes(body.mode)) return null;
 
   const handleSelect = useCallback((variantUid) => {
     dispatch(selectBodyVariant({ itemUid: item.uid, collectionUid: collection.uid, variantUid }));
@@ -103,6 +101,8 @@ const BodyVariantSelector = ({ item, collection }) => {
 
     return items;
   }, [variants, activeVariant, handleSelect, handleAdd, handleDelete]);
+
+  if (!body || !SUPPORTED_MODES.includes(body.mode)) return null;
 
   const activeId = activeVariant
     ? (activeVariant.uid || `__variant_${variants.indexOf(activeVariant)}__`)

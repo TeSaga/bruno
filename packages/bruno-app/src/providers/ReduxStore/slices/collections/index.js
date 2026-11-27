@@ -64,6 +64,9 @@ const deriveCollectionFormat = (brunoConfig) => {
   return brunoConfig?.opencollection ? 'yml' : brunoConfig?.format || 'bru';
 };
 
+// Body modes whose content is a single string that a body variant can swap in and out
+const BODY_VARIANT_MODES = ['json', 'text', 'xml', 'sparql'];
+
 const MAX_COLLECTION_TIMELINE = 50;
 
 const appendCollectionTimeline = (collection, entry) => {
@@ -2008,12 +2011,15 @@ export const collectionsSlice = createSlice({
           }
           const body = item.draft.request.body;
           const mode = body.mode;
-          const supportedTypes = ['json', 'text', 'xml', 'sparql', 'formUrlEncoded'];
-          if (supportedTypes.includes(mode)) {
+          if (BODY_VARIANT_MODES.includes(mode)) {
             const currentContent = body[mode] || '';
             if (!body.variants) body.variants = [];
 
-            // Deselect all existing variants
+            // Leaving Default for the first time: remember it so saving or switching back restores it
+            if (!body.variants.some((v) => v.selected)) {
+              body.defaultContent = currentContent;
+            }
+
             body.variants.forEach((v) => (v.selected = false));
 
             const newVariant = {
@@ -2024,12 +2030,7 @@ export const collectionsSlice = createSlice({
               selected: true // auto-select the new variant
             };
             body.variants.push(newVariant);
-
-            // Sync the new variant content to the main body field
-            const supportedTextTypes = ['json', 'text', 'xml', 'sparql'];
-            if (supportedTextTypes.includes(mode)) {
-              body[mode] = newVariant.content;
-            }
+            body[mode] = newVariant.content;
           }
         }
       }
@@ -2047,9 +2048,12 @@ export const collectionsSlice = createSlice({
             const deletedVariant = body.variants.find((v) => v.uid === action.payload.variantUid);
             body.variants = body.variants.filter((v) => v.uid !== action.payload.variantUid);
 
-            // If the deleted variant was selected, fall back to "default" (no selection)
+            // If the deleted variant was selected, fall back to Default and show its content again
             if (deletedVariant && deletedVariant.selected) {
               body.variants.forEach((v) => (v.selected = false));
+              if (body.defaultContent !== undefined && BODY_VARIANT_MODES.includes(body.mode)) {
+                body[body.mode] = body.defaultContent;
+              }
             }
           }
         }
@@ -2081,10 +2085,9 @@ export const collectionsSlice = createSlice({
             }
 
             const mode = body.mode;
-            const supportedTextTypes = ['json', 'text', 'xml', 'sparql'];
 
             // Save current content back to wherever it belongs BEFORE switching
-            if (supportedTextTypes.includes(mode)) {
+            if (BODY_VARIANT_MODES.includes(mode)) {
               const currentlySelected = body.variants.find((v) => v.selected);
               if (currentlySelected) {
                 // We're on a variant — save edits back to that variant's content
@@ -2102,12 +2105,12 @@ export const collectionsSlice = createSlice({
             // Sync the target content to the main body field
             if (resolvedUid) {
               const selectedVariant = body.variants.find((v) => v.uid === resolvedUid);
-              if (selectedVariant && supportedTextTypes.includes(mode)) {
+              if (selectedVariant && BODY_VARIANT_MODES.includes(mode)) {
                 body[mode] = selectedVariant.content;
               }
             } else {
               // Going back to Default — restore the saved default content
-              if (supportedTextTypes.includes(mode) && body.defaultContent !== undefined) {
+              if (BODY_VARIANT_MODES.includes(mode) && body.defaultContent !== undefined) {
                 body[mode] = body.defaultContent;
               }
             }

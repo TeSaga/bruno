@@ -6,7 +6,8 @@ const {
   unescapeAnnotationDoubleQuotedArg,
   parseAnnotationMultilineTextBlock,
   applyDescriptionFromAnnotations,
-  extractTypedAnnotations
+  extractTypedAnnotations,
+  unescapeBodyVariantContent
 } = require('./utils');
 const parseExample = require('./example/bruToJson');
 
@@ -380,6 +381,24 @@ const parseExampleContent = (content) => {
     console.error('Error parsing example content:', error);
     return { error: error.message };
   }
+};
+
+const parseBodyVariant = (dictionary, type) => {
+  const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
+  const getPairValue = (name) => _.find(pairs, { name })?.value;
+  const content = getPairValue('content') || '';
+
+  return {
+    body: {
+      variants: [{
+        uid: getPairValue('uid'),
+        type,
+        name: getPairValue('name') || '',
+        content: getPairValue('contentEscaped') === 'true' ? unescapeBodyVariantContent(content) : content,
+        selected: getPairValue('selected') === 'true'
+      }]
+    }
+  };
 };
 
 const sem = grammar.createSemantics().addAttribute('ast', {
@@ -1273,94 +1292,19 @@ const sem = grammar.createSemantics().addAttribute('ast', {
     };
   },
   bodyjsonvariant(_1, dictionary) {
-    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
-    const uidPair = _.find(pairs, { name: 'uid' });
-    const namePair = _.find(pairs, { name: 'name' });
-    const contentPair = _.find(pairs, { name: 'content' });
-    const selectedPair = _.find(pairs, { name: 'selected' });
-    return {
-      body: {
-        variants: [{
-          uid: uidPair ? uidPair.value : undefined,
-          type: 'json',
-          name: namePair ? namePair.value : '',
-          content: contentPair ? contentPair.value : '',
-          selected: selectedPair ? selectedPair.value === 'true' : false
-        }]
-      }
-    };
+    return parseBodyVariant(dictionary, 'json');
   },
   bodytextvariant(_1, dictionary) {
-    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
-    const uidPair = _.find(pairs, { name: 'uid' });
-    const namePair = _.find(pairs, { name: 'name' });
-    const contentPair = _.find(pairs, { name: 'content' });
-    const selectedPair = _.find(pairs, { name: 'selected' });
-    return {
-      body: {
-        variants: [{
-          uid: uidPair ? uidPair.value : undefined,
-          type: 'text',
-          name: namePair ? namePair.value : '',
-          content: contentPair ? contentPair.value : '',
-          selected: selectedPair ? selectedPair.value === 'true' : false
-        }]
-      }
-    };
+    return parseBodyVariant(dictionary, 'text');
   },
   bodyxmlvariant(_1, dictionary) {
-    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
-    const uidPair = _.find(pairs, { name: 'uid' });
-    const namePair = _.find(pairs, { name: 'name' });
-    const contentPair = _.find(pairs, { name: 'content' });
-    const selectedPair = _.find(pairs, { name: 'selected' });
-    return {
-      body: {
-        variants: [{
-          uid: uidPair ? uidPair.value : undefined,
-          type: 'xml',
-          name: namePair ? namePair.value : '',
-          content: contentPair ? contentPair.value : '',
-          selected: selectedPair ? selectedPair.value === 'true' : false
-        }]
-      }
-    };
+    return parseBodyVariant(dictionary, 'xml');
   },
   bodysparqlvariant(_1, dictionary) {
-    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
-    const uidPair = _.find(pairs, { name: 'uid' });
-    const namePair = _.find(pairs, { name: 'name' });
-    const contentPair = _.find(pairs, { name: 'content' });
-    const selectedPair = _.find(pairs, { name: 'selected' });
-    return {
-      body: {
-        variants: [{
-          uid: uidPair ? uidPair.value : undefined,
-          type: 'sparql',
-          name: namePair ? namePair.value : '',
-          content: contentPair ? contentPair.value : '',
-          selected: selectedPair ? selectedPair.value === 'true' : false
-        }]
-      }
-    };
+    return parseBodyVariant(dictionary, 'sparql');
   },
   bodyformurlencoded_variant(_1, dictionary) {
-    const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
-    const uidPair = _.find(pairs, { name: 'uid' });
-    const namePair = _.find(pairs, { name: 'name' });
-    const contentPair = _.find(pairs, { name: 'content' });
-    const selectedPair = _.find(pairs, { name: 'selected' });
-    return {
-      body: {
-        variants: [{
-          uid: uidPair ? uidPair.value : undefined,
-          type: 'formUrlEncoded',
-          name: namePair ? namePair.value : '',
-          content: contentPair ? contentPair.value : '',
-          selected: selectedPair ? selectedPair.value === 'true' : false
-        }]
-      }
-    };
+    return parseBodyVariant(dictionary, 'formUrlEncoded');
   },
   bodyws(_1, dictionary) {
     const pairs = mapPairListToKeyValPairs(dictionary.ast, false);
