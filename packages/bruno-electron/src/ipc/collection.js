@@ -20,14 +20,16 @@ const {
   parseEnvironment,
   DEFAULT_COLLECTION_FORMAT
 } = require('@usebruno/filestore');
-const { dotenvToJson } = require('@usebruno/lang');
 const { utils } = require('@usebruno/common');
+const { resolveEnvironmentInheritance, getFilenameWithFormat } = require('@usebruno/common/utils');
 const brunoConverters = require('@usebruno/converters');
 const { postmanToBruno } = brunoConverters;
 const { cookiesStore } = require('../store/cookies');
 const { parseLargeRequestWithRedaction } = require('../utils/parse');
 const { getWsClient } = require('../ipc/network/ws-event-handlers');
 const { hasSubDirectories } = require('../utils/filesystem');
+const { readCollectionForApiSpec } = require('../utils/collection-reader');
+const { exportCollectionYaml } = require('./collection-export');
 const { transformProxyConfig } = require('@usebruno/requests');
 
 const {
@@ -58,13 +60,10 @@ const {
   moveCollectionDirectory,
   getPaths,
   generateUniqueName,
-  isDotEnvFile,
   isValidDotEnvFilename,
-  isBrunoConfigFile,
-  isBruEnvironmentConfig,
-  isCollectionRootBruFile,
   scanForBrunoFiles,
-  withFileLock
+  withFileLock,
+  removeGitMetadata
 } = require('../utils/filesystem');
 const { getCollectionConfigFile, openCollection, openCollectionsByPathname, registerScratchCollectionPath } = require('../app/collections');
 const { generateUidBasedOnHash, stringifyJson, safeStringifyJSON, safeParseJSON } = require('../utils/common');
@@ -75,6 +74,7 @@ const { deleteCookiesForDomain, getDomainsWithCookies, addCookieForDomain, modif
 const EnvironmentSecretsStore = require('../store/env-secrets');
 const CollectionSecurityStore = require('../store/collection-security');
 const snapshotManager = require('../services/snapshot');
+const { transientManager } = require('../services/transient');
 const interpolateVars = require('./network/interpolate-vars');
 const { interpolateString } = require('./network/interpolate-string');
 const { getEnvVars, getTreePathFromCollectionToItem, mergeVars, parseBruFileMeta, hydrateRequestWithUuid, transformRequestToSaveToFilesystem } = require('../utils/collection');
@@ -87,6 +87,7 @@ const { transformBrunoConfigBeforeSave, transformBrunoConfigAfterRead } = requir
 const { REQUEST_TYPES } = require('../utils/constants');
 const { cancelOAuth2AuthorizationRequest, isOauth2AuthorizationRequestInProgress } = require('../utils/oauth2-protocol-handler');
 const { findUniqueFolderName } = require('../utils/collection-import');
+const { renameEnvironmentExtendsReferences } = require('../utils/environments');
 const { saveSpecAndUpdateMetadata, cleanupSpecFilesForCollection } = require('./openapi-sync');
 const {
   validateWorkspacePath,
@@ -103,25 +104,20 @@ const MAX_COLLECTION_SIZE_IN_MB = 20;
 const MAX_SINGLE_FILE_SIZE_IN_COLLECTION_IN_MB = 5;
 const MAX_COLLECTION_FILES_COUNT = 2000;
 
-// Get the base directory for transient request files (stored in app data directory)
-const getTransientDirectoryBase = () => {
-  return path.join(app.getPath('userData'), 'tmp', 'transient');
-};
-
 // Get the prefix used for transient collection directories
 const getTransientCollectionPrefix = () => {
-  return path.join(getTransientDirectoryBase(), 'bruno-');
+  return path.join(transientManager.getDirectoryBase(), 'bruno-');
 };
 
 // Get the prefix used for scratch collection directories
 const getTransientScratchPrefix = () => {
-  return path.join(getTransientDirectoryBase(), 'bruno-scratch-');
+  return path.join(transientManager.getDirectoryBase(), 'bruno-scratch-');
 };
 
 // Check if a path is within the transient directory
 const isTransientPath = (filePath) => {
   const normalizedFilePath = path.normalize(filePath);
-  const transientBase = getTransientDirectoryBase();
+  const transientBase = transientManager.getDirectoryBase();
   return normalizedFilePath.startsWith(transientBase + path.sep) || normalizedFilePath === transientBase;
 };
 
@@ -135,7 +131,7 @@ const findCollectionPathByItemPath = (filePath) => {
   const normalizedFilePath = path.normalize(filePath);
 
   if (isTransientPath(normalizedFilePath)) {
-    const transientBase = getTransientDirectoryBase();
+    const transientBase = transientManager.getDirectoryBase();
     const transientDirName = path.relative(transientBase, normalizedFilePath).split(path.sep)[0];
     if (!transientDirName) return null;
 
@@ -743,7 +739,7 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
   });
 
   // create environment
-  ipcMain.handle('renderer:create-environment', async (event, collectionPathname, name, variables, color) => {
+  ipcMain.handle('renderer:create-environment', async (event, collectionPathname, name, variables, color, inheritedEnvironmentName) => {
     try {
       validatePathIsInsideCollection(collectionPathname);
 
@@ -771,6 +767,10 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
         variables: variables || [],
         color
       };
+
+      if (inheritedEnvironmentName) {
+        environment.extends = inheritedEnvironmentName;
+      }
 
       if (envHasSecrets(environment)) {
         environmentSecretsStore.storeEnvSecrets(collectionPathname, environment);
@@ -837,7 +837,25 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
       moveRequestUid(envFilePath, newEnvFilePath);
       fs.renameSync(envFilePath, newEnvFilePath);
 
+      // only the yml format persists the name; bru derives it from the filename
+      if (format === 'yml') {
+        await withFileLock(newEnvFilePath, async () => {
+          const environment = parseEnvironment(fs.readFileSync(newEnvFilePath, 'utf8'), { format });
+          if (environment.name === newName) return;
+
+          environment.name = newName;
+          await writeFile(newEnvFilePath, stringifyEnvironment(environment, { format }));
+        });
+      }
+
       environmentSecretsStore.renameEnvironment(collectionPathname, environmentName, newName);
+
+      await renameEnvironmentExtendsReferences({
+        environmentsDirPath: path.join(collectionPathname, 'environments'),
+        format,
+        oldName: environmentName,
+        newName
+      });
     } catch (error) {
       return Promise.reject(error);
     }
@@ -946,6 +964,34 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
     }
   });
 
+  // save the environment this environment inherits its variables from
+  ipcMain.handle('renderer:save-environment-extends', async (event, collectionPathname, environmentName, inheritedEnvironmentName) => {
+    try {
+      const format = getCollectionFormat(collectionPathname);
+      const envFilePath = resolveEnvironmentFilePath(collectionPathname, environmentName, format);
+
+      if (!fs.existsSync(envFilePath)) {
+        throw new Error(`environment: ${envFilePath} does not exist`);
+      }
+
+      await withFileLock(envFilePath, async () => {
+        const fileContent = fs.readFileSync(envFilePath, 'utf8');
+        const environment = parseEnvironment(fileContent, { format });
+
+        if (inheritedEnvironmentName) {
+          environment.extends = inheritedEnvironmentName;
+        } else {
+          delete environment.extends;
+        }
+
+        const updatedContent = stringifyEnvironment(environment, { format });
+        await writeFile(envFilePath, updatedContent);
+      });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  });
+
   // update environment color
   ipcMain.handle('renderer:update-environment-color', async (event, collectionPathname, environmentName, color) => {
     try {
@@ -989,6 +1035,7 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
         name: environment.name,
         variables: environment.variables,
         color: environment.color ?? undefined,
+        extends: environment.extends ?? undefined,
         info: {
           type: 'bruno-environment',
           exportedAt: new Date().toISOString(),
@@ -1361,7 +1408,6 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
 
   ipcMain.handle('renderer:import-collection', async (_, collection, collectionLocation, options = {}) => {
     const format = options.format || DEFAULT_COLLECTION_FORMAT;
-    const rawOpenAPISpec = options.rawOpenAPISpec;
     const collections = Array.isArray(collection) ? collection : [collection];
     let completedImports = 0;
     let failedImports = 0;
@@ -1383,22 +1429,24 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
           coll.name = uniqueName;
         }
 
-        const getFilenameWithFormat = (item, format) => {
-          if (item?.filename) {
-            const ext = path.extname(item.filename);
-            if (ext === '.bru' || ext === '.yml') {
-              return item.filename.replace(ext, `.${format}`);
-            }
-            return item.filename;
+        const claimUniqueFilename = (filename, claimedFilenames) => {
+          const { name, ext } = path.parse(filename);
+          let uniqueFilename = filename;
+          let counter = 1;
+          while (claimedFilenames.has(uniqueFilename.toLowerCase())) {
+            uniqueFilename = `${name} (${counter})${ext}`;
+            counter++;
           }
-          return `${item.name}.${format}`;
+          claimedFilenames.add(uniqueFilename.toLowerCase());
+          return uniqueFilename;
         };
 
         // Recursive function to parse the collection items and create files/folders
         const parseCollectionItems = async (items = [], currentPath) => {
+          const requestFilenames = new Set();
           await Promise.all(items.map(async (item) => {
             if (['http-request', 'graphql-request', 'grpc-request', 'ws-request'].includes(item.type)) {
-              const sanitizedFilename = sanitizeName(getFilenameWithFormat(item, format));
+              const sanitizedFilename = claimUniqueFilename(sanitizeName(getFilenameWithFormat(item, format)), requestFilenames);
               const content = await stringifyRequestViaWorker(item, { format });
               const filePath = path.join(currentPath, sanitizedFilename);
               safeWriteFileSync(filePath, content);
@@ -1495,11 +1543,13 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
         await parseEnvironments(coll.environments, collectionPath);
 
         // Save OpenAPI spec file for sync support
+        const rawOpenAPISpec = options.rawOpenAPISpecs?.[coll.uid];
         if (rawOpenAPISpec && brunoConfig.openapi?.length) {
           const specContent = typeof rawOpenAPISpec === 'string'
             ? rawOpenAPISpec
             : JSON.stringify(rawOpenAPISpec, null, 2);
-          await saveSpecAndUpdateMetadata({ collectionPath, specContent });
+          const syncMetadata = await saveSpecAndUpdateMetadata({ collectionPath, specContent });
+          brunoConfig.openapi[0] = { ...brunoConfig.openapi[0], ...syncMetadata };
         }
 
         const { size, filesCount } = await getCollectionStats(collectionPath);
@@ -2001,7 +2051,10 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
       if (request.oauth2) {
         const requestCopy = _.cloneDeep(request);
         const { uid: collectionUid, pathname: collectionPath, runtimeVariables, environments = [], activeEnvironmentUid } = collection;
-        const environment = _.find(environments, (e) => e.uid === activeEnvironmentUid);
+        const environment = resolveEnvironmentInheritance({
+          environments,
+          targetEnvironment: _.find(environments, (e) => e.uid === activeEnvironmentUid)
+        });
         const envVars = getEnvVars(environment);
         const processEnvVars = getProcessEnvVars(collectionUid);
         const partialItem = { uid: itemUid };
@@ -2132,7 +2185,10 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
       if (request.oauth2) {
         const requestCopy = _.cloneDeep(request);
         const { uid: collectionUid, pathname: collectionPath, runtimeVariables, environments = [], activeEnvironmentUid } = collection;
-        const environment = _.find(environments, (e) => e.uid === activeEnvironmentUid);
+        const environment = resolveEnvironmentInheritance({
+          environments,
+          targetEnvironment: _.find(environments, (e) => e.uid === activeEnvironmentUid)
+        });
         const envVars = getEnvVars(environment);
         const processEnvVars = getProcessEnvVars(collectionUid);
         const partialItem = { uid: itemUid };
@@ -2327,7 +2383,7 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
     let tempDirectoryPath = null;
     try {
       // Ensure the transient base directory exists
-      const transientBase = getTransientDirectoryBase();
+      const transientBase = transientManager.getDirectoryBase();
       if (!fs.existsSync(transientBase)) {
         fs.mkdirSync(transientBase, { recursive: true });
       }
@@ -2361,7 +2417,7 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
   ipcMain.handle('renderer:mount-workspace-scratch', async (event, { workspaceUid, workspacePath }) => {
     try {
       // Ensure the transient base directory exists
-      const transientBase = getTransientDirectoryBase();
+      const transientBase = transientManager.getDirectoryBase();
       if (!fs.existsSync(transientBase)) {
         fs.mkdirSync(transientBase, { recursive: true });
       }
@@ -2475,15 +2531,11 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
   // Implement the Postman to Bruno conversion handler
   ipcMain.handle('renderer:convert-postman-to-bruno', async (event, postmanCollection, options = {}) => {
     try {
-      // Convert Postman collection to Bruno format
-      // Returns { collection, issues } where issues tracks items that were skipped or degraded
-      const result = await postmanToBruno(postmanCollection, {
+      return await postmanToBruno(postmanCollection, {
         useWorkers: true,
         // preserve scripts without any pm.* -> bru.* translation
         preserveScripts: !!options.preserveScripts
       });
-
-      return result;
     } catch (error) {
       console.error('Error converting Postman to Bruno:', error);
       return Promise.reject(error);
@@ -2510,114 +2562,15 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
     return runNpmInstall({ collectionPath: collectionPathname, packages });
   });
 
-  ipcMain.handle('renderer:get-collection-json', async (event, collectionPath) => {
-    let variables = {};
-    let name = '';
-    const getBruFilesRecursively = async (dir) => {
-      const getFilesInOrder = async (dir) => {
-        let bruJsons = [];
+  ipcMain.handle('renderer:get-collection-json', (event, collectionPath) => {
+    if (typeof collectionPath !== 'string' || !collectionPath) {
+      throw new Error('collectionPath is required');
+    }
+    if (!fs.existsSync(collectionPath) || !fs.statSync(collectionPath).isDirectory()) {
+      throw new Error(`Collection path does not exist: ${collectionPath}`);
+    }
 
-        const traverse = async (currentPath) => {
-          const filesInCurrentDir = fs.readdirSync(currentPath);
-
-          if (currentPath.includes('node_modules')) {
-            return;
-          }
-
-          for (const file of filesInCurrentDir) {
-            const filePath = path.join(currentPath, file);
-            const stats = fs.lstatSync(filePath);
-
-            if (stats.isDirectory() && !filePath.startsWith('.git') && !filePath.startsWith('node_modules')) {
-              await traverse(filePath);
-            }
-          }
-
-          const currentDirBruJsons = [];
-          for (const file of filesInCurrentDir) {
-            const filePath = path.join(currentPath, file);
-            const stats = fs.lstatSync(filePath);
-
-            if (isBrunoConfigFile(filePath, collectionPath)) {
-              try {
-                const content = fs.readFileSync(filePath, 'utf8');
-                const brunoConfig = JSON.parse(content);
-
-                name = brunoConfig?.name;
-              } catch (err) {
-                console.error(err);
-              }
-            }
-
-            if (isDotEnvFile(filePath, collectionPath)) {
-              try {
-                const content = fs.readFileSync(filePath, 'utf8');
-                const jsonData = dotenvToJson(content);
-                variables = {
-                  ...variables,
-                  processEnvVariables: {
-                    ...process.env,
-                    ...jsonData
-                  }
-                };
-                continue;
-              } catch (err) {
-                console.error(err);
-              }
-            }
-
-            if (isBruEnvironmentConfig(filePath, collectionPath)) {
-              try {
-                const bruContent = fs.readFileSync(filePath, 'utf8');
-                const environmentFilepathBasename = path.basename(filePath);
-                const environmentName = environmentFilepathBasename.substring(0, environmentFilepathBasename.length - 4);
-                const data = await parseEnvironment(bruContent);
-                variables = {
-                  ...variables,
-                  envVariables: {
-                    ...(variables?.envVariables || {}),
-                    [path.basename(filePath)]: data.variables
-                  }
-                };
-                continue;
-              } catch (err) {
-                console.error(err);
-              }
-            }
-
-            if (isCollectionRootBruFile(filePath, collectionPath)) {
-              try {
-                const bruContent = fs.readFileSync(filePath, 'utf8');
-                const data = await parseCollection(bruContent);
-                // TODO
-                continue;
-              } catch (err) {
-                console.error(err);
-              }
-            }
-            if (!stats.isDirectory() && path.extname(filePath) === '.bru' && file !== 'folder.bru') {
-              const bruContent = fs.readFileSync(filePath, 'utf8');
-              const bruJson = parseRequest(bruContent);
-
-              currentDirBruJsons.push({
-                ...bruJson
-              });
-            }
-          }
-
-          bruJsons = bruJsons.concat(currentDirBruJsons);
-        };
-
-        await traverse(dir);
-        return bruJsons;
-      };
-
-      const orderedFiles = await getFilesInOrder(dir);
-      return orderedFiles;
-    };
-
-    const files = await getBruFilesRecursively(collectionPath);
-    return { name, files, ...variables };
+    return readCollectionForApiSpec(collectionPath);
   });
 
   ipcMain.handle('renderer:export-collection-zip', async (event, collectionPath, collectionName) => {
@@ -2661,7 +2614,7 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
             const entryArchivePath = archivePath ? path.join(archivePath, entry.name) : entry.name;
 
             if (entry.isDirectory()) {
-              if (!ignoredDirectories.includes(entry.name)) {
+              if (!ignoredDirectories.includes(entry.name.toLowerCase())) {
                 addDirectoryToArchive(fullPath, entryArchivePath);
               }
             } else {
@@ -2678,6 +2631,10 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
     } catch (error) {
       throw error;
     }
+  });
+
+  ipcMain.handle('renderer:export-collection-yaml', async (event, collectionName, content) => {
+    return exportCollectionYaml(mainWindow, collectionName, content);
   });
 
   ipcMain.handle('renderer:export-collection-postman', async (event, dirPath, fileName, content, overwrite = false) => {
@@ -2760,6 +2717,7 @@ const registerRendererEventHandlers = (mainWindow, watcher) => {
         await extractZip(zipFilePath, { dir: tempDir });
 
         validateNoExternalSymlinks(tempDir, tempDir);
+        await removeGitMetadata(tempDir);
 
         const extractedItems = fs.readdirSync(tempDir);
         let collectionDir = tempDir;

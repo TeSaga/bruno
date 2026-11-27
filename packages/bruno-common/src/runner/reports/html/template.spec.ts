@@ -1,13 +1,19 @@
 import { generateHtmlReport } from './generate-report';
-import htmlTemplateString, { getFilteredRequestResults } from './template';
+import htmlTemplateString, { formatTotalRunDuration, getFilteredRequestResults } from './template';
 import vm from 'vm';
 
-const readEmbeddedIterations = (html: string) => {
+const readEmbeddedReport = (html: string) => {
   const base64 = html.match(/decodeBase64\('([^']*)'\)/)?.[1];
   if (!base64) {
     throw new Error('The report did not embed its results as a base64 payload');
   }
-  return JSON.parse(Buffer.from(base64, 'base64').toString()).results;
+  return JSON.parse(Buffer.from(base64, 'base64').toString());
+};
+
+const formatTotalRunDurationInVm = (runStartTime?: string, runCompletionTime?: string) => {
+  const ctx = vm.createContext({ runStartTime, runCompletionTime });
+  vm.runInContext(`var fn = ${formatTotalRunDuration.toString()}`, ctx);
+  return vm.runInContext('fn(runStartTime, runCompletionTime)', ctx);
 };
 
 describe('getFilteredRequestResults', () => {
@@ -40,11 +46,33 @@ describe('getFilteredRequestResults', () => {
   });
 });
 
+describe('formatTotalRunDuration', () => {
+  it('shows the time from the run\'s start to its completion', () => {
+    expect(formatTotalRunDurationInVm('2026-03-17T09:41:27.385Z', '2026-03-17T09:43:05.619Z')).toBe('98.234s');
+  });
+
+  it('shows a dash when the run has no start time', () => {
+    expect(formatTotalRunDurationInVm('', '2026-03-17T09:43:05.619Z')).toBe('-');
+  });
+
+  it('shows a dash when the run has no completion time', () => {
+    expect(formatTotalRunDurationInVm('2026-03-17T09:41:27.385Z', undefined)).toBe('-');
+  });
+
+  it('shows a dash when the run completes before it starts', () => {
+    expect(formatTotalRunDurationInVm('2026-03-17T09:43:05.619Z', '2026-03-17T09:41:27.385Z')).toBe('-');
+  });
+
+  it('shows a dash when a time is not a valid date', () => {
+    expect(formatTotalRunDurationInVm('not-a-date', '2026-03-17T09:43:05.619Z')).toBe('-');
+  });
+});
+
 describe('htmlTemplateString', () => {
   it('renders skipped requests off the request status, naming bail as the reason', () => {
     const template = htmlTemplateString('');
 
-    expect(template).toContain('result.status === \'skipped\'');
+    expect(template).toContain('result.response.status === \'skipped\'');
     expect(template).toContain('result.skipReason === \'bail\' ? \'Request skipped due to bail\'');
   });
 });
@@ -57,20 +85,33 @@ describe('generateHtmlReport', () => {
       skipped: true,
       skipReason: 'bail',
       request: { method: 'POST', url: 'https://api.example.com/users' },
-      response: { status: '-', responseTime: 0 },
+      response: { status: 'skipped', responseTime: 0 },
       runDuration: 0
     };
 
     const html = generateHtmlReport({
       runnerResults: [{ iterationIndex: 0, results: [bailSkippedResult], summary: { totalRequests: 1 } }] as any
     });
-    const [iteration] = readEmbeddedIterations(html);
+    const [iteration] = readEmbeddedReport(html).results;
 
     expect(iteration.results[0]).toMatchObject({
       status: 'skipped',
       skipReason: 'bail',
       request: { method: 'POST', url: 'https://api.example.com/users' },
-      response: { status: '-' }
+      response: { status: 'skipped' }
+    });
+  });
+
+  it('embeds the run\'s start and completion times', () => {
+    const html = generateHtmlReport({
+      runnerResults: [],
+      runStartTime: '2026-03-17T09:41:27.385Z',
+      runCompletionTime: '2026-03-17T09:43:05.619Z'
+    });
+
+    expect(readEmbeddedReport(html)).toMatchObject({
+      runStartTime: '2026-03-17T09:41:27.385Z',
+      runCompletionTime: '2026-03-17T09:43:05.619Z'
     });
   });
 });

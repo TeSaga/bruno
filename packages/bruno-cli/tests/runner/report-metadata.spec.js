@@ -28,7 +28,7 @@ describe('HTML Report Generation', () => {
     // Generate HTML using mock data
     const htmlString = generateHtmlReport({
       runnerResults: mockResults,
-      version: 'usebruno v1.16.0',
+      version: 'v1.16.0',
       environment: 'production',
       runCompletionTime: '2024-01-15T14:30:45.123Z'
     });
@@ -66,7 +66,7 @@ describe('HTML Report Generation', () => {
               data: null
             },
             response: {
-              status: '-',
+              status: 'skipped',
               statusText: 'Unexpected token',
               data: null,
               responseTime: 0
@@ -101,13 +101,13 @@ describe('HTML Report Generation', () => {
 
     const htmlString = generateHtmlReport({
       runnerResults: mockResults,
-      version: 'usebruno v1.16.0',
+      version: 'v1.16.0',
       environment: null,
       runCompletionTime: '2024-01-15T14:30:45.123Z'
     });
 
     expect(htmlString).toContain('Request Skipped');
     expect(htmlString).toContain('summarySkippedRequests');
-    expect(htmlString).toContain('result.status === \'skipped\'');
+    expect(htmlString).toContain('result.response.status === \'skipped\'');
   });
 });

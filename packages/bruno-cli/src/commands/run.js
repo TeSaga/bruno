@@ -1,25 +1,24 @@
 const fs = require('fs');
+const { setTimeout } = require('node:timers/promises');
 const chalk = require('chalk');
 const path = require('path');
-const yaml = require('js-yaml');
 const { forOwn, cloneDeep } = require('lodash');
 const { getRunnerSummary } = require('@usebruno/common/runner');
 const { exists, stripExtension, isSafeFileName } = require('../utils/filesystem');
 const { runSingleRequest } = require('../runner/run-single-request');
-const { getEnvVars } = require('../utils/bru');
-const { parseEnvironmentJson } = require('../utils/environment');
 const { isRequestTagsIncluded } = require('@usebruno/common');
 const makeJUnitOutput = require('../reporters/junit');
 const makeHtmlOutput = require('../reporters/html');
 const { getOptions } = require('../utils/bru');
-const { parseDotEnv, parseEnvironment } = require('@usebruno/filestore');
+const { parseDotEnv } = require('@usebruno/filestore');
 const constants = require('../constants');
 const Table = require('cli-table3');
-const { findItemInCollection, createCollectionJsonFromPathname, getCallStack, FORMAT_CONFIG } = require('../utils/collection');
+const { findItemInCollection, createCollectionJsonFromPathname, getCallStack, getEffectiveTagsByPathname, FORMAT_CONFIG } = require('../utils/collection');
 const { hasExecutableTestInScript } = require('../utils/request');
 const { createSkippedFileResults } = require('../utils/run');
 const { sanitizeResultsForReporter } = require('../utils/sanitize-results');
 const { getSystemProxy } = require('@usebruno/requests');
+const { loadEnvironmentFromFile } = require('../utils/environment');
 const command = 'run [paths...]';
 const desc = 'Run one or more requests/folders';
 
@@ -55,10 +54,14 @@ const printRunSummary = (results) => {
     results.reduce((acc, res) => acc + (res.runDuration || 0), 0) * 1000
   );
 
+  const totalTests = summary.totalTests + summary.totalPreRequestTests + summary.totalPostResponseTests;
+  const passedTests = summary.passedTests + summary.passedPreRequestTests + summary.passedPostResponseTests;
+  const failedTests = summary.failedTests + summary.failedPreRequestTests + summary.failedPostResponseTests;
+
   const hasFailures
     = summary.failedRequests > 0
       || summary.failedAssertions > 0
-      || summary.failedTests > 0
+      || failedTests > 0
       || (summary.errorRequests || 0) > 0;
 
   const status = hasFailures
@@ -66,7 +69,7 @@ const printRunSummary = (results) => {
     : chalk.green.bold('✓ PASS');
 
   const requests = formatRequestsCellFromSummary(summary);
-  const tests = `${summary.passedTests}/${summary.totalTests}`;
+  const tests = `${passedTests}/${totalTests}`;
   const assertions = `${summary.passedAssertions}/${summary.totalAssertions}`;
 
   const headers = [chalk.bold('Metric'), chalk.bold('Result')];
@@ -137,6 +140,17 @@ const builder = async (yargs) => {
       describe: 'Javascript sandbox to use; available sandboxes are "safe" (default) or "developer"',
       default: 'safe',
       type: 'string'
+    })
+    .option('cache-modules', {
+      type: 'boolean',
+      default: false,
+      describe: 'Share npm modules across script runs in the developer sandbox'
+    })
+    .option('experimental-cache-modules', {
+      type: 'boolean',
+      default: false,
+      deprecated: 'use --cache-modules',
+      describe: 'Share npm modules across script runs in the developer sandbox'
     })
     .option('output', {
       alias: 'o',
@@ -218,11 +232,11 @@ const builder = async (yargs) => {
     })
     .option('tags', {
       type: 'string',
-      description: 'Tags to include in the run'
+      description: 'Tags to include in the run, matched against a request\'s own tags and its folders\' tags'
     })
     .option('exclude-tags', {
       type: 'string',
-      description: 'Tags to exclude from the run'
+      description: 'Tags to exclude from the run, matched against a request\'s own tags and its folders\' tags'
     })
     .option('verbose', {
       type: 'boolean',
@@ -313,6 +327,8 @@ const handler = async function (argv) {
       reporterJunit,
       reporterHtml,
       sandbox,
+      cacheModules: cacheModulesFlag,
+      experimentalCacheModules,
       testsOnly,
       bail,
       reporterSkipAllHeaders,
@@ -372,6 +388,10 @@ const handler = async function (argv) {
     let globalEnvVars = {};
     let envFileDescriptor = null;
     let globalEnvFileDescriptor = null;
+    // Enabled entries of an `--env-file`, handed to a `--env` passed alongside it: both files'
+    // variables reach the same runtime map, but only the `--env` file is written back, and a name
+    // belongs to the file that declares it.
+    let envFileVariables = [];
     // --env-var overrides as Map<name, injected value>. The persistence layer compares the
     // script's resulting value against the injected value to tell a leaked override (same
     // value passed through unchanged) apart from a deliberate same-named script write that
@@ -388,34 +408,6 @@ const handler = async function (argv) {
       return 'bru';
     };
 
-    // Helper to load environment variables from a file
-    const loadEnvFromFile = (filePath, nameOverride) => {
-      const fileExt = path.extname(filePath).toLowerCase();
-      let result = {};
-
-      if (fileExt === '.json') {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const parsed = JSON.parse(content);
-        const normalizedEnv = parseEnvironmentJson(parsed);
-        result = getEnvVars(normalizedEnv);
-        const rawName = normalizedEnv?.name;
-        const trimmedName = typeof rawName === 'string' ? rawName.trim() : '';
-        result.__name__ = trimmedName || path.basename(filePath, '.json');
-      } else if (fileExt === '.yml') {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const envJson = parseEnvironment(content, { format: 'yml' });
-        result = getEnvVars(envJson);
-        result.__name__ = nameOverride || path.basename(filePath, '.yml');
-      } else {
-        const content = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
-        const envJson = parseEnvironment(content, { format: 'bru' });
-        result = getEnvVars(envJson);
-        result.__name__ = nameOverride || path.basename(filePath, '.bru');
-      }
-
-      return result;
-    };
-
     // Load --env-file if provided
     if (envFile) {
       const envFilePath = path.resolve(collectionPath, envFile);
@@ -424,8 +416,18 @@ const handler = async function (argv) {
         process.exit(constants.EXIT_STATUS.ERROR_ENV_NOT_FOUND);
       }
       try {
-        envVars = loadEnvFromFile(envFilePath);
-        envFileDescriptor = { path: envFilePath, format: resolveEnvFileFormat(envFilePath) };
+        // An `--env-file` is loaded exactly as the file reads: its `extends` chain is left
+        // unresolved, even when the path points at one of the collection's own environments.
+        const { variables: environmentVariables, ownVariables } = loadEnvironmentFromFile({
+          filePath: envFilePath,
+          resolveInheritance: false
+        });
+        envVars = environmentVariables;
+        envFileVariables = ownVariables;
+        envFileDescriptor = {
+          path: envFilePath,
+          format: resolveEnvFileFormat(envFilePath)
+        };
       } catch (err) {
         console.error(chalk.red(`Failed to parse environment file: ${err.message}`));
         process.exit(constants.EXIT_STATUS.ERROR_INVALID_FILE);
@@ -449,9 +451,13 @@ const handler = async function (argv) {
         const defaultEnvFilePath = path.join(collectionPath, 'environments', `${defaultEnvironment}${envExt}`);
         if (await exists(defaultEnvFilePath)) {
           try {
-            const defaultEnvVars = loadEnvFromFile(defaultEnvFilePath, defaultEnvironment);
-            envVars = { ...envVars, ...defaultEnvVars };
-            envFileDescriptor = { path: defaultEnvFilePath, format: collection.format };
+            const { variables: environmentVariables, inheritedVariables: inheritedEnvironmentVariables } = loadEnvironmentFromFile({ filePath: defaultEnvFilePath, name: defaultEnvironment });
+            envVars = { ...envVars, ...environmentVariables };
+            envFileDescriptor = {
+              path: defaultEnvFilePath,
+              format: collection.format,
+              inheritedEnvironmentVariables
+            };
             console.log(chalk.dim(`Using default environment: ${defaultEnvironment}`));
           } catch (err) {
             console.error(chalk.red(`Failed to parse default environment file: ${err.message}`));
@@ -475,9 +481,14 @@ const handler = async function (argv) {
         process.exit(constants.EXIT_STATUS.ERROR_ENV_NOT_FOUND);
       }
       try {
-        const collectionEnvVars = loadEnvFromFile(collectionEnvFilePath, env);
-        envVars = { ...envVars, ...collectionEnvVars };
-        envFileDescriptor = { path: collectionEnvFilePath, format: collection.format };
+        const { variables: environmentVariables, inheritedVariables: inheritedEnvironmentVariables } = loadEnvironmentFromFile({ filePath: collectionEnvFilePath, name: env });
+        envVars = { ...envVars, ...environmentVariables };
+        envFileDescriptor = {
+          path: collectionEnvFilePath,
+          format: collection.format,
+          inheritedEnvironmentVariables,
+          envFileVariables
+        };
       } catch (err) {
         console.error(chalk.red(`Failed to parse Environment file: ${err.message}`));
         process.exit(constants.EXIT_STATUS.ERROR_INVALID_FILE);
@@ -528,11 +539,13 @@ const handler = async function (argv) {
       }
 
       try {
-        const globalEnvContent = fs.readFileSync(globalEnvFilePath, 'utf8');
-        const globalEnvJson = parseEnvironment(globalEnvContent, { format: 'yml' });
-        globalEnvVars = getEnvVars(globalEnvJson);
-        globalEnvVars.__name__ = globalEnv;
-        globalEnvFileDescriptor = { path: globalEnvFilePath, format: 'yml' };
+        const { variables: environmentVariables, inheritedVariables: inheritedEnvironmentVariables } = loadEnvironmentFromFile({ filePath: globalEnvFilePath, name: globalEnv });
+        globalEnvVars = environmentVariables;
+        globalEnvFileDescriptor = {
+          path: globalEnvFilePath,
+          format: 'yml',
+          inheritedEnvironmentVariables
+        };
       } catch (err) {
         console.error(chalk.red(`Failed to parse global environment: ${err.message}`));
         process.exit(constants.EXIT_STATUS.ERROR_INVALID_FILE);
@@ -612,6 +625,14 @@ const handler = async function (argv) {
     if (verbose) {
       options['verbose'] = true;
     }
+    if (experimentalCacheModules) {
+      console.warn(chalk.yellow('--experimental-cache-modules is deprecated and will be removed in a future release; use --cache-modules instead'));
+    }
+    const cacheModules = cacheModulesFlag === true || experimentalCacheModules === true;
+    if (cacheModules && sandbox !== 'developer') {
+      console.warn(chalk.yellow('--cache-modules requires --sandbox developer; ignoring flag'));
+    }
+    options['cacheModules'] = sandbox === 'developer' && cacheModules;
     if (cacert && cacert.length) {
       if (insecure) {
         console.error(chalk.red(`Ignoring the cacert option since insecure connections are enabled`));
@@ -703,9 +724,12 @@ const handler = async function (argv) {
       });
     }
 
-    requestItems = requestItems.filter((item) => {
-      return isRequestTagsIncluded(item.tags, includeTags, excludeTags);
-    });
+    if (includeTags.length || excludeTags.length) {
+      const effectiveTagsByPathname = getEffectiveTagsByPathname(collection);
+      requestItems = requestItems.filter((item) => {
+        return isRequestTagsIncluded(effectiveTagsByPathname.get(item.pathname) || [], includeTags, excludeTags);
+      });
+    }
 
     const runtime = getJsSandboxRuntime(sandbox);
 
@@ -728,6 +752,54 @@ const handler = async function (argv) {
       }
     }
 
+    const createSkippedResult = (requestItem, skipReason) => {
+      const relativePath = path.relative(collectionPath, requestItem.pathname);
+      return {
+        test: { filename: relativePath },
+        request: { method: requestItem.request?.method || null, url: requestItem.request?.url || null, headers: null, data: null },
+        response: { status: 'skipped', statusText: null, data: null, responseTime: 0 },
+        status: 'skipped',
+        skipped: true,
+        skipReason,
+        assertionResults: [],
+        testResults: [],
+        preRequestTestResults: [],
+        postResponseTestResults: [],
+        runDuration: 0,
+        suitename: stripExtension(requestItem.pathname),
+        name: requestItem.name,
+        path: relativePath
+      };
+    };
+
+    /**
+     * Halt raised by the run (--bail on a failure, or a script calling bru.runner.stopExecution()).
+     *
+     * @property {string|null} haltedBy - what halted the run: 'bail' | 'stopExecution'
+     * @property {string|null} haltedAtRequest - request that halted it, e.g. 'Get Users'
+     * @property {string|null} haltedReason - e.g. 'test failure' | 'assertion failure' | 'stopExecution'
+     * @property {number|null} remainingRequests - requests that never ran, e.g. 2
+     */
+    const haltState = {
+      haltedBy: null,
+      haltedAtRequest: null,
+      haltedReason: null,
+      remainingRequests: null
+    };
+
+    // Aborted by haltRun; cancels any in-flight request that received its signal.
+    const runAbortController = new AbortController();
+
+    const runAbortSignal = runAbortController.signal;
+
+    const haltRun = (reason, details = {}) => {
+      if (haltState.haltedBy) {
+        return;
+      }
+      Object.assign(haltState, { haltedBy: reason, ...details });
+      runAbortController.abort(reason);
+    };
+
     const runSingleRequestByPathname = async (relativeItemPathname) => {
       const ext = FORMAT_CONFIG[collection.format].ext;
       return new Promise(async (resolve, reject) => {
@@ -749,7 +821,8 @@ const handler = async function (argv) {
             collection,
             runSingleRequestByPathname,
             globalEnvVars,
-            persistPaths
+            persistPaths,
+            runAbortSignal
           );
           resolve(res?.response);
         }
@@ -757,10 +830,22 @@ const handler = async function (argv) {
       });
     };
 
+    const runStartTime = new Date().toISOString();
     let currentRequestIndex = 0;
     let nJumps = 0; // count the number of jumps to avoid infinite loops
-    let bailInfo = null; // populated only if --bail triggers
+    let isFirstRequest = true;
+    const isValidDelay = !Number.isNaN(delay) && delay > 0;
     while (currentRequestIndex < requestItems.length) {
+      if (!isFirstRequest && isValidDelay && !runAbortSignal.aborted) {
+        console.log(chalk.yellow(`Waiting for ${delay}ms or ${(delay / 1000).toFixed(3)}s before next request.`));
+        await setTimeout(delay, undefined, { signal: runAbortSignal }).catch(() => {});
+      }
+
+      if (!isFirstRequest && Number.isNaN(delay)) {
+        console.log(chalk.red(`Ignoring delay because it's not a valid number.`));
+      }
+      isFirstRequest = false;
+
       const requestItem = cloneDeep(requestItems[currentRequestIndex]);
       const { name, pathname } = requestItem;
 
@@ -777,19 +862,9 @@ const handler = async function (argv) {
         collection,
         runSingleRequestByPathname,
         globalEnvVars,
-        persistPaths
+        persistPaths,
+        runAbortSignal
       );
-
-      const isLastRun = currentRequestIndex === requestItems.length - 1;
-      const isValidDelay = !Number.isNaN(delay) && delay > 0;
-      if (isValidDelay && !isLastRun) {
-        console.log(chalk.yellow(`Waiting for ${delay}ms or ${(delay / 1000).toFixed(3)}s before next request.`));
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-
-      if (Number.isNaN(delay) && !isLastRun) {
-        console.log(chalk.red(`Ignoring delay because it's not a valid number.`));
-      }
 
       results.push({
         ...result,
@@ -827,44 +902,11 @@ const handler = async function (argv) {
           // Synthesize "Skipped (Bail)" placeholder results for the requests that never
           // ran due to bail. These let getRunnerSummary count them as skipped, and the
           // summary table can distinguish them from user-initiated skips via skipReason.
-          for (const ri of remainingItems) {
-            const relativePath = path.relative(collectionPath, ri.pathname);
-            results.push({
-              test: {
-                filename: relativePath
-              },
-              request: {
-                method: ri.request?.method || null,
-                url: ri.request?.url || null,
-                headers: null,
-                data: null
-              },
-              response: {
-                status: '-',
-                statusText: null,
-                data: null,
-                responseTime: 0
-              },
-              status: 'skipped',
-              skipped: true,
-              skipReason: 'bail',
-              testResults: [],
-              assertionResults: [],
-              preRequestTestResults: [],
-              postResponseTestResults: [],
-              runDuration: 0,
-              suitename: stripExtension(ri.pathname),
-              name: ri.name,
-              path: relativePath
-            });
+          for (const request of remainingItems) {
+            results.push(createSkippedResult(request, 'bail'));
           }
 
-          bailInfo = {
-            bailed: true,
-            bailReason,
-            bailedAt: name,
-            skippedByBail: remainingItems.length
-          };
+          haltRun('bail', { haltedAtRequest: name, haltedReason: bailReason, remainingRequests: remainingItems.length });
 
           console.log(
             '\n' + chalk.hex(constants.COLORS.ORANGE)(
@@ -880,6 +922,17 @@ const handler = async function (argv) {
       const nextRequestName = result?.nextRequestName;
 
       if (result?.shouldStopRunnerExecution) {
+        const remainingItems = requestItems.slice(currentRequestIndex + 1);
+
+        for (const request of remainingItems) {
+          results.push(createSkippedResult(request, 'stopExecution'));
+        }
+
+        haltRun('stopExecution', {
+          haltedAtRequest: name,
+          haltedReason: 'stopExecution',
+          remainingRequests: remainingItems.length
+        });
         break;
       }
 
@@ -925,7 +978,7 @@ const handler = async function (argv) {
       const reporters = {
         json: (path) => fs.writeFileSync(path, JSON.stringify(outputJson, null, 2)),
         junit: (path) => makeJUnitOutput(results, path),
-        html: (path) => makeHtmlOutput(outputJson, path, runCompletionTime, environmentName)
+        html: (path) => makeHtmlOutput(outputJson, path, { runStartTime, runCompletionTime, environment: environmentName })
       };
 
       for (const formatter of Object.keys(formats)) {

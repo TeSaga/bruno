@@ -19,6 +19,8 @@ import { updateRequestBody } from 'providers/ReduxStore/slices/collections/index
 import { toastError } from 'utils/common/error';
 import { prettifyJsonString } from 'utils/common/index';
 import xmlFormat from 'xml-formatter';
+import useKeybinding from 'hooks/useKeybinding';
+import { REQUEST_BODY_EDITOR_CLASS } from 'utils/common/constants';
 import BodyVariantSelector from '../BodyVariantSelector';
 
 // Error boundary to prevent BodyVariantSelector from crashing the body tab
@@ -108,6 +110,12 @@ const RequestBodyMode = ({ item, collection }) => {
       }
     }
   };
+
+  useKeybinding('prettify', (e) => {
+    if (!e.target.closest(`.${REQUEST_BODY_EDITOR_CLASS}`)) return;
+    onPrettify();
+    return false;
+  });
 
   const menuItems = useMemo(() => {
     return DEFAULT_MODES.map((group) => ({

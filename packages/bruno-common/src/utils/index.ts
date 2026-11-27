@@ -15,6 +15,7 @@ export {
 export {
   buildFormUrlEncodedPayload,
   isFormData,
+  getMediaType,
   extractBoundaryFromContentType
 } from './form-data';
 
@@ -53,13 +54,39 @@ export {
 export {
   sanitizeName,
   validateName,
-  validateNameError
+  validateNameError,
+  generateUniqueName,
+  stripCopySuffix,
+  nextCopyName,
+  getFilenameWithFormat
 } from './naming';
+
+export {
+  getInheritableEnvironments,
+  getInheritedEnvironments,
+  resolveEnvironmentInheritance,
+  validatedEnvironmentName,
+  validatedEnvironmentExtendsFrom
+} from './environment-inheritance';
+
+export {
+  toVariablesMap,
+  getDuplicateSecretNames,
+  dedupeImportedSecrets
+} from './environment-variables';
+
+export {
+  coerceEnvName
+} from './environments';
 
 export {
   toBool,
   toNumber
 } from './type-helpers';
+
+export {
+  isValidNpmPackageName
+} from './npm';
 
 export {
   MAX_BODY_SIZE_DEFAULT,

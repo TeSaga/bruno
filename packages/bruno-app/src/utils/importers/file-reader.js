@@ -1,6 +1,8 @@
 import jsyaml from 'js-yaml';
 import { BrunoError } from 'utils/common/error';
 
+export const FILE_PARSE_ERROR = 'Failed to parse the file – ensure it is valid JSON or YAML';
+
 /**
  * Parse a File object as JSON or YAML and return the parsed object.
  * Throws with a user-friendly message on parse failure.
@@ -19,6 +21,27 @@ export const parseFileAsJsonOrYaml = async (file) => {
     }
     return parsed;
   } catch {
+    throw new Error(FILE_PARSE_ERROR);
+  }
+};
+
+export const parseFileText = (text, file) => {
+  // Handle WSDL files - return as plain text
+  if (file.name.endsWith('.wsdl') || file.type === 'text/xml' || file.type === 'application/xml') {
+    return text;
+  }
+
+  try {
+    if (file.type === 'application/json' || file.name.endsWith('.json')) {
+      return JSON.parse(text);
+    }
+
+    const parsed = jsyaml.load(text, { schema: jsyaml.JSON_SCHEMA });
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new Error();
+    }
+    return parsed;
+  } catch {
     throw new Error('Failed to parse the file – ensure it is valid JSON or YAML');
   }
 };
@@ -30,15 +53,15 @@ const readFile = (file) => {
       try {
         const parsed = JSON.parse(e.target.result);
         if (parsed === null || typeof parsed !== 'object') {
-          reject(new BrunoError(`Unable to parse JSON file: ${file.name}`));
+          reject(new BrunoError('Unable to parse JSON'));
           return;
         }
         resolve({ fileName: file.name, filePath: file.path || file.webkitRelativePath || '', content: parsed });
       } catch (err) {
-        reject(new BrunoError(`Unable to parse JSON file: ${file.name}`));
+        reject(new BrunoError('Unable to parse JSON'));
       }
     };
-    fileReader.onerror = () => reject(new BrunoError(`Unable to read file: ${file.name}`));
+    fileReader.onerror = () => reject(new BrunoError('Unable to read file'));
     fileReader.readAsText(file);
   });
 };

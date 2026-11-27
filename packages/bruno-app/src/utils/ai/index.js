@@ -1,4 +1,5 @@
 import get from 'lodash/get';
+import { resolveEnvironmentInheritance } from '@usebruno/common/utils';
 import { callIpc } from 'utils/common/ipc';
 import {
   findEnvironmentInCollection,
@@ -30,6 +31,22 @@ export const getAiApiKey = ({ providerId }) =>
 
 export const testAiProvider = ({ providerId }) =>
   callIpc('renderer:ai-test-provider', { providerId });
+
+export const copilotSignIn = () => callIpc('renderer:ai-copilot-sign-in');
+
+export const copilotSignInWithGitHubCli = () => callIpc('renderer:ai-copilot-sign-in-with-github-cli');
+
+export const copilotCancelSignIn = () => callIpc('renderer:ai-copilot-cancel-sign-in');
+
+export const copilotRefreshModels = () => callIpc('renderer:ai-copilot-refresh-models');
+
+export const copilotSignOut = () => callIpc('renderer:ai-copilot-sign-out');
+
+export const formatCopilotMultiplier = (multiplier) => {
+  if (multiplier === 0) return 'Included';
+  if (multiplier === 1 || !Number.isFinite(multiplier)) return null;
+  return `${multiplier}×`;
+};
 
 export const aiGenerateText = (params) =>
   callIpc('renderer:ai-generate-text', params);
@@ -173,8 +190,13 @@ export const buildAiVariablesPayload = (collection, item, redactVariablesOverrid
     claim(name, 'global', globalSecrets.has(name));
   }
 
-  // Active environment - explicit `secret` flag per variable.
-  const env = findEnvironmentInCollection(collection, collection.activeEnvironmentUid);
+  // Active environment - explicit `secret` flag per variable. Inherited variables are
+  // merged in so a secret defined on a parent environment is redacted too.
+  const env = resolveEnvironmentInheritance({
+    environments: collection.environments,
+    targetEnvironment: findEnvironmentInCollection(collection, collection.activeEnvironmentUid),
+    merge: true
+  });
   if (env && Array.isArray(env.variables)) {
     for (const v of env.variables) {
       if (v?.name && v.enabled) claim(v.name, 'env', Boolean(v.secret));

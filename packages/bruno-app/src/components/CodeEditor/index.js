@@ -11,6 +11,8 @@ import { useSelector } from 'react-redux';
 import { debounce, isEqual } from 'lodash';
 import { defineCodeMirrorBrunoVariablesMode } from 'utils/common/codemirror';
 import { setupAutoComplete, showRootHints } from 'utils/codemirror/autocomplete';
+import { HINT_ROOTS } from 'utils/codemirror/scriptApi';
+import './brunoApiInfo';
 import { setupAiAutocomplete } from 'utils/codemirror/aiGhostText';
 import { buildAutocompleteContext } from 'utils/ai';
 import StyledWrapper from './StyledWrapper';
@@ -18,7 +20,7 @@ import StatusBar from './StatusBar';
 import * as jsonlint from '@prantlf/jsonlint';
 import { JSHINT } from 'jshint';
 import stripJsonComments from 'strip-json-comments';
-import { getAllVariables, getRequestTypeFromCollectionPresets } from 'utils/collections';
+import { getAllVariables, getVariableNamesWithScope } from 'utils/collections';
 import { setupLinkAware } from 'utils/codemirror/linkAware';
 import { resolveLinkClickHandler } from 'utils/codemirror/linkClickHandler';
 import { setupLintErrorTooltip } from 'utils/codemirror/lint-errors';
@@ -33,6 +35,7 @@ import {
   writePersistedEditorState
 } from './state-persistence';
 import { usePersistenceScope } from 'hooks/usePersistedState/PersistedScopeProvider';
+import { SetAsVariableContext } from 'providers/SetAsVariable/context';
 import {
   changeIntroducesLongLine,
   hasLongLine
@@ -74,6 +77,11 @@ function foldAllAsync(editor, action, chunkSize = 500) {
 const NORMAL_GUTTERS = ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'];
 const TAB_SIZE = 2;
 
+const brunoApiInfoOption = (props, degraded) => {
+  const showHintsFor = props.showHintsFor || [];
+  return !degraded && showHintsFor.some((group) => HINT_ROOTS.includes(group)) ? { scriptType: props.scriptType } : false;
+};
+
 const buildCodeMirrorOptions = ({
   profile,
   props,
@@ -98,6 +106,7 @@ const buildCodeMirrorOptions = ({
       collection: props.collection,
       item: props.item
     } : false,
+    brunoApiInfo: brunoApiInfoOption(props, degraded),
     keyMap: 'sublime',
     autoCloseBrackets: !degraded,
     matchBrackets: !degraded,
@@ -132,6 +141,7 @@ const applyEditorProfile = (
     collection: props.collection,
     item: props.item
   } : false);
+  editor.setOption('brunoApiInfo', brunoApiInfoOption(props, degraded));
 
   if (degraded) {
     editor.setOption('mode', null);
@@ -158,6 +168,18 @@ const applyEditorProfile = (
 };
 
 class CodeEditor extends React.Component {
+  static contextType = SetAsVariableContext;
+
+  _onContextMenu = (editor, event) => {
+    if (this.props.enableBrunoVarInfo === false) return;
+
+    this.context.openFromCodeMirror(event, editor, {
+      collection: this.props.collection,
+      item: this.props.item,
+      mode: this.props.mode
+    });
+  };
+
   constructor(props) {
     super(props);
 
@@ -335,6 +357,7 @@ class CodeEditor extends React.Component {
       );
       editor.on('beforeChange', this._onBeforeChange);
       editor.on('change', this._onEdit);
+      editor.on('contextmenu', this._onContextMenu);
 
       // Persist view state immediately when the user folds or unfolds — without
       // this, a fold only gets saved on the next tab switch / unmount. That
@@ -405,7 +428,8 @@ class CodeEditor extends React.Component {
     this.addOverlay();
     this.brunoAutoCompleteCleanup = setupAutoComplete(editor, {
       showHintsFor: this.props.showHintsFor,
-      getAllVariables: () => getAllVariables(this.props.collection, this.props.item)
+      scriptType: this.props.scriptType,
+      getAllVariables: () => getVariableNamesWithScope(this.props.collection, this.props.item)
     });
 
     if (this.props.scriptType) {
@@ -425,14 +449,9 @@ class CodeEditor extends React.Component {
     }
 
     setupLinkAware(editor, {
-      onLinkClick: (typeof this.props.onLinkClick === 'function' || resolveLinkClickHandler(this.props.item, this.props.collection))
-        ? this.handleLinkClick
-        : undefined
+      onLinkClick: this._resolveOnLinkClick() ? this.handleLinkClick : undefined
     });
-    this._linkAwareItemType = this.props.item?.type;
-    this._linkAwareCollectionUid = this.props.collection?.uid;
-    this._linkAwarePresetType = getRequestTypeFromCollectionPresets(this.props.collection);
-    this._linkAwareHasOnLinkClickProp = typeof this.props.onLinkClick === 'function';
+    this._linkAwareEnabled = !!this._resolveOnLinkClick();
   };
 
   _disableEnhancedFeatures = () => {
@@ -445,7 +464,9 @@ class CodeEditor extends React.Component {
 
   _setLongLineMode = (value, { deferRestore = false } = {}) => {
     const longLineDetected = hasLongLine(value);
-    this.setState({ longLineDetected });
+    if (longLineDetected !== this.state.longLineDetected) {
+      this.setState({ longLineDetected });
+    }
     const degrade = longLineDetected && !this.longLineOverride;
     return this._applyLongLineMode(degrade, value, { deferRestore });
   };
@@ -598,26 +619,12 @@ class CodeEditor extends React.Component {
         }
       }
 
-      // Re-wire link handler when item/collection context changes.
-      const itemType = this.props.item?.type;
-      const collectionUid = this.props.collection?.uid;
-      const presetType = getRequestTypeFromCollectionPresets(this.props.collection);
-      const hasOnLinkClickProp = typeof this.props.onLinkClick === 'function';
-      if (
-        itemType !== this._linkAwareItemType
-        || collectionUid !== this._linkAwareCollectionUid
-        || presetType !== this._linkAwarePresetType
-        || hasOnLinkClickProp !== this._linkAwareHasOnLinkClickProp
-      ) {
-        this._linkAwareItemType = itemType;
-        this._linkAwareCollectionUid = collectionUid;
-        this._linkAwarePresetType = presetType;
-        this._linkAwareHasOnLinkClickProp = hasOnLinkClickProp;
+      const linkAwareEnabled = !!this._resolveOnLinkClick();
+      if (linkAwareEnabled !== this._linkAwareEnabled) {
+        this._linkAwareEnabled = linkAwareEnabled;
         this.editor._destroyLinkAware?.();
         setupLinkAware(this.editor, {
-          onLinkClick: (typeof this.props.onLinkClick === 'function' || resolveLinkClickHandler(this.props.item, this.props.collection))
-            ? this.handleLinkClick
-            : undefined
+          onLinkClick: linkAwareEnabled ? this.handleLinkClick : undefined
         });
         this.editor.refresh();
       }
@@ -681,6 +688,7 @@ class CodeEditor extends React.Component {
       this._disableEnhancedFeatures();
       this.editor.off('beforeChange', this._onBeforeChange);
       this.editor.off('change', this._onEdit);
+      this.editor.off('contextmenu', this._onContextMenu);
 
       // Tear down the debounced fold-persistence listener. Cancel any pending
       // call so it can't fire after we've already snapshotted state above.
@@ -693,6 +701,7 @@ class CodeEditor extends React.Component {
       // Clean up lint error tooltip
       this.cleanupLintErrorTooltip?.();
       this.cleanupResizeRefresh?.();
+      this.editor.setOption('brunoApiInfo', false);
 
       const wrapper = this.editor.getWrapperElement();
       wrapper?.parentNode?.removeChild(wrapper);
@@ -706,6 +715,20 @@ class CodeEditor extends React.Component {
       this.props.onSearchBarVisibilityChange?.(false);
     }
   }
+
+  _resolveOnLinkClick = () => {
+    if (typeof this.props.onLinkClick === 'function') {
+      return this.props.onLinkClick;
+    }
+    if (!this.props.readOnly) {
+      return undefined;
+    }
+    return resolveLinkClickHandler(this.props.item, this.props.collection);
+  };
+
+  handleLinkClick = (url) => {
+    this._resolveOnLinkClick()?.(url);
+  };
 
   render() {
     if (this.editor) {
@@ -790,13 +813,6 @@ class CodeEditor extends React.Component {
 
     this.longLineOverride = this.longLineMode;
     this._applyLongLineMode(!this.longLineMode, this.cachedValue);
-  };
-
-  handleLinkClick = (url) => {
-    const onLinkClick = typeof this.props.onLinkClick === 'function'
-      ? this.props.onLinkClick
-      : resolveLinkClickHandler(this.props.item, this.props.collection);
-    onLinkClick?.(url);
   };
 }
 
